@@ -1,0 +1,50 @@
+{
+  "name": "jarvis-home",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cinematic Windows desktop shell — JARVIS wake screen",
+  "main": "dist-electron/main.js",
+  "scripts": {
+    "dev": "vite",
+    "dev:electron": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && tsc -p electron/tsconfig.json && cross-env ELECTRON_RENDERER_URL=http://localhost:5173 electron dist-electron/main.js\"",
+    "build": "tsc -p electron/tsconfig.json && vite build && electron-builder",
+    "build:renderer": "vite build",
+    "build:electron": "tsc -p electron/tsconfig.json",
+    "start": "electron dist-electron/main.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "framer-motion": "^11.11.0",
+    "maplibre-gl": "^5.23.0",
+    "mic": "^2.1.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "three": "^0.168.0",
+    "zustand": "^4.5.5"
+  },
+  "devDependencies": {
+    "@types/node": "^22.5.0",
+    "@types/react": "^18.3.3",
+    "@types/react-dom": "^18.3.0",
+    "@types/three": "^0.168.0",
+    "@vitejs/plugin-react": "^4.3.1",
+    "concurrently": "^9.0.1",
+    "cross-env": "^7.0.3",
+    "electron": "^32.1.0",
+    "electron-builder": "^25.0.5",
+    "typescript": "^5.5.4",
+    "vite": "^5.4.2",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.marco.jarvishome",
+    "productName": "JARVIS_HOME",
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*"
+    ],
+    "win": {
+      "target": "nsis"
+    }
+  }
+}

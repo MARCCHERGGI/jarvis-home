@@ -1,0 +1,21 @@
+node_modules/
+dist/
+dist-electron/
+release/
+build/
+
+.env
+.env.local
+.env.*.local
+
+*.log
+npm-debug.log*
+.DS_Store
+Thumbs.db
+
+.vscode/
+.idea/
+
+# Local media — recordings and any audio Marco dropped in
+public/audio/*.mp3
+!public/audio/README.md
