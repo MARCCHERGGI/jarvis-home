@@ -8,23 +8,25 @@ import { ParticleOrb } from './ParticleOrb';
  *
  *  Sleep     → hidden, centered
  *  Waking    → fades in at center, large
- *  Briefing  → springs up to top, smaller
+ *  Briefing  → shrinks in place to "spirit" form at the pentagon core
+ *  Ready     → stays at center as the spirit the 5 panels orbit
  *
  * Three.js canvas is a CONSTANT 460px (no re-init / no layout).
  * Position and scale animate via Framer springs on TRANSFORM only
- * (GPU-composited, zero jank). Target Y values are real pixels —
- * no cross-unit interpolation.
+ * (GPU-composited, zero jank).
  */
 
-const CANVAS = 460;
-const TARGET_TOP_PX = 60;
-const BRIEFING_SCALE = 360 / 460;
+const CANVAS = 560;
+const BRIEFING_SCALE = 0.52;
 
 export function PersistentOrb() {
   const phase = useJarvis((s) => s.phase);
-  const isSleep = phase === 'sleep';
-  const isWaking = phase === 'waking';
-  const centered = isSleep || isWaking;
+  // Orb is hidden while the camera is still in orbit (sleep, waking).
+  // It emerges during descending — the kinetic energy of re-entry
+  // crystallizing at the point of arrival — then settles at briefing.
+  const hidden = phase === 'sleep' || phase === 'waking';
+  const isBriefing = phase === 'briefing' || phase === 'ready';
+  const isDescending = phase === 'descending';
 
   const [vh, setVh] = useState(() =>
     typeof window !== 'undefined' ? window.innerHeight : 900
@@ -36,7 +38,11 @@ export function PersistentOrb() {
   }, []);
 
   const centeredY = vh / 2 - CANVAS / 2;
-  const briefingY = TARGET_TOP_PX - (CANVAS * (1 - BRIEFING_SCALE)) / 2;
+
+  // Scale journey: 0 (hidden) → 1 (emerge at full size during descent)
+  // → 0.45 (settle to spirit form as panels orbit in). The spring does
+  // the overshoot automatically — no keyframes needed.
+  const scale = hidden ? 0.2 : isDescending ? 1 : BRIEFING_SCALE;
 
   return (
     <motion.div
@@ -52,16 +58,21 @@ export function PersistentOrb() {
         zIndex: 50,
         willChange: 'transform, opacity',
         transformOrigin: '50% 50%',
+        // Promote to its own GPU layer pre-emptively so the emerge
+        // doesn't pay for layer creation mid-animation.
+        transform: 'translateZ(0)',
       }}
       animate={{
-        y: centered ? centeredY : briefingY,
-        scale: centered ? 1 : BRIEFING_SCALE,
-        opacity: isSleep ? 0 : 1,
+        y: centeredY,
+        scale,
+        opacity: hidden ? 0 : 1,
       }}
       transition={{
-        y:       { type: 'spring', stiffness: 52, damping: 18, mass: 1.35 },
-        scale:   { type: 'spring', stiffness: 60, damping: 20, mass: 1.15 },
-        opacity: { duration: 0.35, ease: [0.22, 1, 0.36, 1] },
+        y:       { type: 'spring', stiffness: 105, damping: 26, mass: 0.85 },
+        // Slightly bouncier spring so the orb "crystallizes" with a kiss
+        // of overshoot when it emerges from the descent.
+        scale:   { type: 'spring', stiffness: 130, damping: 20, mass: 0.8 },
+        opacity: { duration: isDescending ? 0.55 : 0.45, ease: [0.22, 1, 0.36, 1] },
       }}
     >
       <ParticleOrb size={CANVAS} />

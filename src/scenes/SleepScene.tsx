@@ -11,11 +11,16 @@ import {
   atmosphereVertex, atmosphereFragment,
 } from './earthShaders';
 
+// Use Vite's BASE_URL so paths work under both dev (/ base) and prod
+// (file:// with ./ base). Hardcoded /textures/... was resolving to
+// filesystem root under file://, causing every texture to 404 silently
+// and leaving the dark-blue placeholder material visible.
+const B = import.meta.env.BASE_URL;
 const TEX = {
-  day:    '/textures/earth-day.jpg',
-  night:  '/textures/earth-night.jpg',
-  water:  '/textures/earth-water.png',
-  topo:   '/textures/earth-topology.png',
+  day:    `${B}textures/earth-day.jpg`,
+  night:  `${B}textures/earth-night.jpg`,
+  water:  `${B}textures/earth-water.png`,
+  topo:   `${B}textures/earth-topology.png`,
 };
 
 const EARTH_R = 1.0;
@@ -53,7 +58,12 @@ export function SleepScene() {
     // the spirit now; Earth is just a pretty backdrop during sleep.
 
     // ══ NEBULA BACKDROP ══ Extremely subtle — barely visible cosmic haze
-    const nebulaGeom = new THREE.SphereGeometry(900, 32, 32);
+    // 16x16 sphere (was 32x32) is plenty — the vertex density doesn't
+    // matter, only the fragment shader. Fragment-side we gate `visible`
+    // per-phase in the tick loop so the fullscreen fbm pass is zero-cost
+    // during the Earth→JARVIS dive. That single gate is the single
+    // largest foundational perf lever for the wake transition.
+    const nebulaGeom = new THREE.SphereGeometry(900, 16, 16);
     const nebulaMat = new THREE.ShaderMaterial({
       uniforms: { uTime: { value: 0 } },
       side: THREE.BackSide,
@@ -78,8 +88,11 @@ export function SleepScene() {
                          mix(hash(i+vec3(0,1,1)), hash(i+vec3(1,1,1)), f.x), f.y), f.z);
         }
         float fbm(vec3 p) {
+          // 2 octaves (was 5) — fullscreen fbm was the largest per-frame
+          // fragment cost. The haze is "barely visible" anyway, the
+          // extra octaves were invisible.
           float v = 0.0, a = 0.5;
-          for (int i = 0; i < 5; i++) { v += a * noise(p); p *= 2.0; a *= 0.5; }
+          for (int i = 0; i < 2; i++) { v += a * noise(p); p *= 2.0; a *= 0.5; }
           return v;
         }
         void main() {
@@ -181,12 +194,15 @@ export function SleepScene() {
           uSunDir: { value: sun },
         },
       });
-      const earth = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 256, 256), earthMat);
+      // 96x96 = ~18k tris (was 128x128 = 32k tris, originally 256x256 = 131k).
+      // Vertex shader cost scales linearly with tris — 44% cheaper than 128x128
+      // for the descent tween with no visible silhouette change at orbital distance.
+      const earth = new THREE.Mesh(new THREE.SphereGeometry(EARTH_R, 96, 96), earthMat);
       earthSpin.add(earth);
       (earthTilt as any).__earthMat = earthMat;
     });
 
-    // Atmosphere
+    // Atmosphere — 48x48 (was 96x96), additive-blended haze doesn't need detail.
     const atmosMat = new THREE.ShaderMaterial({
       vertexShader: atmosphereVertex,
       fragmentShader: atmosphereFragment,
@@ -196,12 +212,12 @@ export function SleepScene() {
       side: THREE.BackSide,
       depthWrite: false,
     });
-    const atmos = new THREE.Mesh(new THREE.SphereGeometry(ATMOS_R, 96, 96), atmosMat);
+    const atmos = new THREE.Mesh(new THREE.SphereGeometry(ATMOS_R, 32, 32), atmosMat);
     scene.add(atmos);
 
     // Stars
     const starGeom = new THREE.BufferGeometry();
-    const N = 1200;  // further reduced for perf — invisible diff visually
+    const N = 300;  // heavy perf cut — invisible diff at typical viewing distance
     const pos = new Float32Array(N * 3);
     const col = new Float32Array(N * 3);
     for (let i = 0; i < N; i++) {
@@ -280,117 +296,233 @@ export function SleepScene() {
       return delta;
     };
 
-    // Camera targeting — uses nycFinalWorldDir so the camera dives toward
-    // where NYC will be after the rotation completes, not where it currently is.
-    const getCamTarget = () => {
-      const p = useJarvis.getState().phase;
-      switch (p) {
-        case 'sleep':
-          return { pos: new THREE.Vector3(0, 0.25, 4.8), fov: 42, duration: 1800 };
-        case 'waking':
-          // America comes into view as Earth rotates; camera zooms straight in
-          return { pos: new THREE.Vector3(0, 0.25, 2.2), fov: 38, duration: 2400 };
-        case 'descending':
-          // Camera tracks toward NYC's final world position, diving closer
-          return { pos: nycFinalWorldDir.clone().multiplyScalar(1.32), fov: 30, duration: 3000 };
-        case 'briefing':
-        case 'ready':
-        default:
-          return { pos: nycFinalWorldDir.clone().multiplyScalar(1.065), fov: 24, duration: 1600 };
+    // ══ PHYSICS-BASED TRAJECTORY ══
+    //
+    // One continuous motion from orbital rest → NYC arrival. No phase-
+    // boundary restart (that was the source of velocity hitches). Phase
+    // only gates WHEN to start; the camera follows a single curve that
+    // runs to completion.
+    //
+    // Direction: spherical slerp from sleep-gaze to NYC-gaze (great arc).
+    // Radius:    gravity-friction curve (smoothstep) — slow orbital
+    //            release, accelerate through free-fall, decelerate into
+    //            atmospheric braking. Feels like a real re-entry.
+    // FOV:       dolly-zoom (42 → 52 peak at mid-dive → 28 final). The
+    //            widen-then-tighten gives kinetic speed perception
+    //            without actually moving faster.
+    const SLEEP_POS = new THREE.Vector3(0, 0.25, 4.8);
+    const SLEEP_FOV = 42;
+    const ARRIVAL_R = 1.055;                // just above atmosphere (1.025)
+    const ARRIVAL_FOV = 28;
+    const FOV_PEAK = 52;
+    const WAKE_DURATION = 1050;             // total trajectory time (ms) — snappier feels less laggy
+    const FOV_PEAK_AT = 0.42;               // s at which FOV widens to peak
+
+    const SLEEP_DIR = SLEEP_POS.clone().normalize();
+    const ARRIVAL_POS = nycFinalWorldDir.clone().multiplyScalar(ARRIVAL_R);
+    const ARRIVAL_DIR = nycFinalWorldDir.clone();
+
+    // Pre-compute the slerp constants so the per-frame cost is just two
+    // sins + a scalar lerp (no acos).
+    const arcDot = Math.max(-1, Math.min(1, SLEEP_DIR.dot(ARRIVAL_DIR)));
+    const arcTheta = Math.acos(arcDot);
+    const arcSinTheta = Math.sin(arcTheta);
+
+    const smoothstep = (x: number) => {
+      const t = Math.max(0, Math.min(1, x));
+      return t * t * (3 - 2 * t);
+    };
+    const smootherstep = (x: number) => {
+      const t = Math.max(0, Math.min(1, x));
+      return t * t * t * (t * (t * 6 - 15) + 10);
+    };
+
+    const trajectoryAt = (s: number, out: THREE.Vector3): number => {
+      // Direction — great-arc slerp, eased with smootherstep (long-tail settle)
+      const ts = smootherstep(s);
+      let dx: number, dy: number, dz: number;
+      if (arcTheta < 0.001) {
+        dx = SLEEP_DIR.x + (ARRIVAL_DIR.x - SLEEP_DIR.x) * ts;
+        dy = SLEEP_DIR.y + (ARRIVAL_DIR.y - SLEEP_DIR.y) * ts;
+        dz = SLEEP_DIR.z + (ARRIVAL_DIR.z - SLEEP_DIR.z) * ts;
+      } else {
+        const w1 = Math.sin((1 - ts) * arcTheta) / arcSinTheta;
+        const w2 = Math.sin(ts * arcTheta) / arcSinTheta;
+        dx = w1 * SLEEP_DIR.x + w2 * ARRIVAL_DIR.x;
+        dy = w1 * SLEEP_DIR.y + w2 * ARRIVAL_DIR.y;
+        dz = w1 * SLEEP_DIR.z + w2 * ARRIVAL_DIR.z;
       }
+      // Radius — gravity-friction profile: smoothstep over s
+      const tr = smoothstep(s);
+      const r = SLEEP_POS.length() + (ARRIVAL_R - SLEEP_POS.length()) * tr;
+      out.set(dx * r, dy * r, dz * r);
+      // Return the normalized cruise velocity (0..1, peaks around mid) —
+      // used to modulate decorative work.
+      return 4 * s * (1 - s);
+    };
+
+    // Dolly-zoom FOV curve. Widens for apparent speed through descent,
+    // then tightens to focus on arrival.
+    const fovAt = (s: number): number => {
+      if (s <= FOV_PEAK_AT) {
+        const u = smoothstep(s / FOV_PEAK_AT);
+        return SLEEP_FOV + (FOV_PEAK - SLEEP_FOV) * u;
+      }
+      const u = smoothstep((s - FOV_PEAK_AT) / (1 - FOV_PEAK_AT));
+      return FOV_PEAK + (ARRIVAL_FOV - FOV_PEAK) * u;
     };
 
     // Render loop
     const clock = new THREE.Clock();
     let raf = 0;
-    let camFrom = { pos: camera.position.clone(), fov: camera.fov };
-    let camTarget = getCamTarget();
-    let camT0 = performance.now();
     let lastPhase = useJarvis.getState().phase;
+    let wakeStartTime = 0;     // 0 = trajectory inactive
+    let sleepReturnTime = 0;   // 0 = not returning to sleep
+    let sleepReturnFrom = { pos: SLEEP_POS.clone(), fov: SLEEP_FOV };
 
-    const ease = (x: number) => x < 0.5 ? 4*x*x*x : 1 - Math.pow(-2*x+2, 3)/2;
+    const ease = (x: number) => {
+      const t = Math.max(0, Math.min(1, x));
+      return 1 - Math.pow(1 - t, 3.3);
+    };
+
+    const tmpPos = new THREE.Vector3();
+
+    // ══ SLEEP-PHASE FRAME THROTTLE ══
+    // Earth rotates at <1°/s during sleep. 30fps looks identical to 60fps
+    // for that motion. Throttling during sleep halves the WebGL+Three.js
+    // per-frame cost while Marco is just staring at the globe — which is
+    // his default state. During wake (dive trajectory), we run full 60fps
+    // for camera smoothness.
+    let lastRenderT = 0;
+    const SLEEP_FRAME_MS = 33;   // 30fps
+    const ACTIVE_FRAME_MS = 8;   // 120fps cap (lets high-refresh displays breathe)
 
     const tick = () => {
       const dt = clock.getDelta();
       const t  = clock.getElapsedTime();
       const cur = useJarvis.getState().phase;
 
-      // Skip the heavy composer+bloom render once Earth has fully disintegrated.
-      // Panels + orb own the screen during briefing/ready. Huge GPU saving.
+      // Once Earth has dissolved, skip all work. The raf continues
+      // so R-to-sleep resumes instantly, but we touch nothing.
       if ((cur === 'briefing' || cur === 'ready') && earthTilt.scale.x < 0.005) {
         raf = requestAnimationFrame(tick);
         return;
       }
 
-      // Phase transitions
-      if (cur !== lastPhase) {
-        camFrom = { pos: camera.position.clone(), fov: camera.fov };
-        camTarget = getCamTarget();
-        camT0 = performance.now();
+      // ══ FOUNDATIONAL WAKE-LAG FIX ══
+      // Per-frame visibility gates. The nebula sphere is a 900-unit
+      // BackSide mesh — it renders as a fullscreen fragment pass every
+      // frame with fbm noise. During the dive the camera is inside a
+      // fullscreen Earth + atmos render; the nebula is fully occluded
+      // but still pays its fragment bill. Hiding it during wake cuts
+      // the single largest per-pixel cost off the dive entirely.
+      // Satellite rings are also invisible during the dive — kill them too.
+      const isSleep = cur === 'sleep';
+      if (nebula.visible !== isSleep) nebula.visible = isSleep;
+      // Satellite rings/bodies: hide off-sleep. Cheap (4 draw calls saved).
+      for (let i = 0; i < sats.length; i++) {
+        const plane = sats[i].pivot.parent;
+        if (plane && plane.visible !== isSleep) plane.visible = isSleep;
+      }
+      // Stars: fade out immediately on wake. Let the points object stay
+      // but hide it entirely once opacity hits zero to skip the draw call.
+      stars.visible = isSleep || starsMat.opacity > 0.02;
 
-        if (cur === 'waking' && lastPhase === 'sleep') {
-          // SPACE pressed — start Earth rotation to bring NYC to +Z over ~5.4s
-          // (spans waking 2.4s + descending 3s).
-          const cur_angle = earthSpin.rotation.y;
-          const delta = normalizeAngleDelta(spinTargetAngle - (cur_angle % (2 * Math.PI)));
+      // ── Phase transition detection ──
+      if (cur !== lastPhase) {
+        if (cur !== 'sleep' && wakeStartTime === 0) {
+          // First non-sleep phase → start the wake trajectory. Begin
+          // Earth rotation in parallel so NYC arrives on +Z by the
+          // time the camera does.
+          wakeStartTime = performance.now();
+          sleepReturnTime = 0;
+          const curAngle = earthSpin.rotation.y;
+          const delta = normalizeAngleDelta(spinTargetAngle - (curAngle % (2 * Math.PI)));
           rotTween = {
-            from: cur_angle,
-            to: cur_angle + delta,
-            t0: performance.now(),
-            duration: 5400,
+            from: curAngle,
+            to: curAngle + delta,
+            t0: wakeStartTime,
+            duration: WAKE_DURATION * 0.72,
           };
         } else if (cur === 'sleep') {
-          // R pressed — clear tween, restart idle rotation
+          // R pressed → glide back to orbital rest
+          sleepReturnTime = performance.now();
+          sleepReturnFrom = { pos: camera.position.clone(), fov: camera.fov };
+          wakeStartTime = 0;
           rotTween = null;
         }
-
         lastPhase = cur;
       }
 
-      // Apply Earth rotation
+      // ── Earth rotation ──
       if (rotTween) {
         const p = Math.min(1, (performance.now() - rotTween.t0) / rotTween.duration);
-        const k = ease(p);
-        earthSpin.rotation.y = rotTween.from + (rotTween.to - rotTween.from) * k;
+        earthSpin.rotation.y = rotTween.from + (rotTween.to - rotTween.from) * smootherstep(p);
         if (p >= 1) rotTween = null;
       } else if (cur === 'sleep') {
         earthSpin.rotation.y += (2 * Math.PI / (86164 / TIME_SCALE_EARTH)) * dt;
       }
 
-      // Satellites
-      sats.forEach((s) => { s.pivot.rotation.y += s.speed * dt * (TIME_SCALE_SAT / 250); });
+      // ── Camera: unified trajectory ──
+      let velocity = 0;
+      if (wakeStartTime > 0) {
+        const elapsed = performance.now() - wakeStartTime;
+        const s = Math.min(1, elapsed / WAKE_DURATION);
+        velocity = trajectoryAt(s, tmpPos);
+        camera.position.copy(tmpPos);
+        camera.fov = fovAt(s);
+        camera.updateProjectionMatrix();
+        camera.lookAt(0, 0, 0);
+      } else if (sleepReturnTime > 0) {
+        const p = Math.min(1, (performance.now() - sleepReturnTime) / 800);
+        const k = ease(p);
+        camera.position.lerpVectors(sleepReturnFrom.pos, SLEEP_POS, k);
+        camera.fov = sleepReturnFrom.fov + (SLEEP_FOV - sleepReturnFrom.fov) * k;
+        camera.updateProjectionMatrix();
+        camera.lookAt(0, 0, 0);
+        if (p >= 1) sleepReturnTime = 0;
+      }
 
-      // Stars twinkle
-      starsMat.opacity = 0.85 + Math.sin(t * 1.8) * 0.07;
-      stars.rotation.y += dt * 0.003;
+      // ── Decorative work (skip during wake for budget headroom) ──
+      if (cur === 'sleep') {
+        sats.forEach((s) => { s.pivot.rotation.y += s.speed * dt * (TIME_SCALE_SAT / 250); });
+        starsMat.opacity = 0.85 + Math.sin(t * 1.8) * 0.07;
+        stars.rotation.y += dt * 0.003;
+        nebulaMat.uniforms.uTime.value = t;
+        sunMat.uniforms.uTime.value = t;
+        sunMesh.lookAt(camera.position);
+      } else {
+        // During wake — fade stars/sats/nebula out quickly, then stop touching them.
+        const fade = Math.max(0, 1 - velocity * 2 - (wakeStartTime > 0 ?
+          Math.min(1, (performance.now() - wakeStartTime) / 400) : 0));
+        starsMat.opacity = 0.85 * fade;
+        if (fade > 0.02) {
+          // Only keep satellites/nebula alive for the first ~400ms of wake
+          sats.forEach((s) => { s.pivot.rotation.y += s.speed * dt * (TIME_SCALE_SAT / 250); });
+          nebulaMat.uniforms.uTime.value = t;
+        }
+      }
 
-      // Camera tween
-      const p = Math.min(1, (performance.now() - camT0) / camTarget.duration);
-      const k = ease(p);
-      camera.position.lerpVectors(camFrom.pos, camTarget.pos, k);
-      camera.fov = camFrom.fov + (camTarget.fov - camFrom.fov) * k;
-      camera.updateProjectionMatrix();
-      camera.lookAt(0, 0, 0);
-
-      // Drive nebula + sun animations
-      nebulaMat.uniforms.uTime.value = t;
-      sunMat.uniforms.uTime.value = t;
-      sunMesh.lookAt(camera.position);
-
-      // ── EARTH DISSOLUTION ──
-      // As particles emerge, Earth visibly shrinks + spins faster (disintegrates).
-      const targetScale = cur === 'sleep' ? 1.0 : 0.0;
+      // ── Earth dissolution ──
+      // Earth stays at full scale during the dive (you see it rushing up).
+      // Only dissolves once the map takes over in briefing.
+      // Dissolve is FAST (0.055) so the concurrent-render window with the
+      // orb emergence is short — that overlap was the peak lag spike.
+      const targetScale = (cur === 'briefing' || cur === 'ready') ? 0.0 : 1.0;
       const currentScale = earthTilt.scale.x;
-      const scaleSpeed = targetScale > currentScale ? 0.025 : 0.015;
+      const scaleSpeed = targetScale > currentScale ? 0.035 : 0.055;
       const newScale = currentScale + (targetScale - currentScale) * scaleSpeed;
       earthTilt.scale.setScalar(newScale);
       atmos.scale.setScalar(newScale);
-      // Spin-up effect: rotate faster as Earth disintegrates
-      if (cur !== 'sleep' && newScale > 0.02) {
-        earthSpin.rotation.y += (1 - newScale) * 0.03;
-      }
 
-      renderer.render(scene, camera);
+      // Frame-pace: sleep = 30fps, wake/dissolve = full speed.
+      const nowMs = performance.now();
+      const isSleepIdle = cur === 'sleep' && sleepReturnTime === 0 && wakeStartTime === 0;
+      const frameBudget = isSleepIdle ? SLEEP_FRAME_MS : ACTIVE_FRAME_MS;
+      if (nowMs - lastRenderT >= frameBudget) {
+        renderer.render(scene, camera);
+        lastRenderT = nowMs;
+      }
       raf = requestAnimationFrame(tick);
     };
     tick();
@@ -420,8 +552,10 @@ export function SleepScene() {
 
   useEffect(() => {}, [phase]);
 
-  // Earth fades out when particles take over during wake
-  const fading = phase !== 'sleep';
+  // Canvas only fades once the map/orb has taken over. During waking and
+  // descending the Earth must stay fully visible — the user is diving
+  // through it. Fade only kicks in at briefing, fast, so no lingering ghost.
+  const fading = phase === 'briefing' || phase === 'ready';
 
   return (
     <div
@@ -429,7 +563,8 @@ export function SleepScene() {
       style={{
         position: 'absolute', inset: 0,
         opacity: fading ? 0 : 1,
-        transition: 'opacity 1.4s cubic-bezier(0.22, 1, 0.36, 1)',
+        transition: 'opacity 650ms cubic-bezier(0.4, 0, 0.2, 1)',
+        willChange: 'opacity',
       }}
     />
   );

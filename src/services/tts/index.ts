@@ -22,6 +22,9 @@ export type JarvisSpeakOptions = {
   onStart?: () => void;
   onEnd?: () => void;
   onAmplitude?: (amp: number) => void;
+  /** Fires during playback with the live audio position + duration.
+   *  Use to gate UI (panel reveals) on actual voice progress, not wall-clock. */
+  onTimeUpdate?: (currentTime: number, duration: number) => void;
 };
 
 type CacheEntry = { url: string; dispose: () => void };
@@ -193,6 +196,12 @@ class VoicePipeline {
       setActive(true);
 
       audio.addEventListener('play', () => opts.onStart?.(), { once: true });
+      if (opts.onTimeUpdate) {
+        const tu = opts.onTimeUpdate;
+        audio.addEventListener('timeupdate', () => {
+          tu(audio.currentTime, isFinite(audio.duration) ? audio.duration : 0);
+        });
+      }
       audio.addEventListener('ended', () => {
         setActive(false);
         opts.onEnd?.();

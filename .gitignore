@@ -19,3 +19,5 @@ Thumbs.db
 # Local media — recordings and any audio Marco dropped in
 public/audio/*.mp3
 !public/audio/README.md
+
+.vercel

@@ -14,17 +14,34 @@ export function CinematicOverlay() {
   const awake = phase === 'descending' || phase === 'briefing' || phase === 'ready';
   const cinematic = phase === 'briefing' || phase === 'ready';
 
-  // Publish voice amplitude to document root CSS var — every component can read it.
+  // Voice-amp CSS var — only pumps while speech is active + quantized
+  // to 2% steps. During sleep phase voice is never active, so we don't
+  // even schedule the rAF loop. Starts/stops based on phase.
   useEffect(() => {
+    if (phase === 'sleep') {
+      // Ensure reset and don't run the loop at all.
+      document.documentElement.style.setProperty('--jv-amp', '0');
+      return;
+    }
     let raf = 0;
+    let lastQ = -1;
     const pump = () => {
-      const a = Math.min(1, ampBus.amp * 2.2);
-      document.documentElement.style.setProperty('--jv-amp', a.toFixed(3));
+      if (ampBus.active) {
+        const a = Math.min(1, ampBus.amp * 2.2);
+        const q = Math.round(a * 50) / 50;
+        if (q !== lastQ) {
+          document.documentElement.style.setProperty('--jv-amp', q.toFixed(2));
+          lastQ = q;
+        }
+      } else if (lastQ !== 0) {
+        document.documentElement.style.setProperty('--jv-amp', '0');
+        lastQ = 0;
+      }
       raf = requestAnimationFrame(pump);
     };
     raf = requestAnimationFrame(pump);
     return () => cancelAnimationFrame(raf);
-  }, []);
+  }, [phase]);
 
   return (
     <>
@@ -32,59 +49,68 @@ export function CinematicOverlay() {
       <div className="jv-letterbox jv-letterbox-top" data-active={cinematic} />
       <div className="jv-letterbox jv-letterbox-bottom" data-active={cinematic} />
 
-      <div style={{
-        position: 'absolute', inset: 0, pointerEvents: 'none',
-        zIndex: 998,
-      }}>
-        {/* ─── VIGNETTE ─── */}
+      {/* ══ FOUNDATIONAL LAG FIX ══
+          The stack below is SIX fullscreen divs with mix-blend-mode. Every
+          frame anything updates underneath (Earth rotating, orb emerging,
+          map rendering) the compositor has to re-raster the entire
+          viewport through every blend layer. During sleep that's the
+          single biggest constant perf drain. Gate the whole stack behind
+          `awake` so sleep phase has a clean compositor pipeline. */}
+      {awake && (
         <div style={{
-          position: 'absolute', inset: 0,
-          background: 'radial-gradient(ellipse 120% 85% at center, transparent 28%, rgba(0,0,0,0.35) 72%, rgba(0,0,0,0.85) 100%)',
-          mixBlendMode: 'multiply',
-        }} />
-
-        {/* ─── CHROMATIC EDGE SPLIT ─── */}
-        <div style={{
-          position: 'absolute', inset: 0,
-          background: 'radial-gradient(ellipse at center, transparent 62%, rgba(255,60,130,0.10) 100%)',
-          mixBlendMode: 'screen',
-        }} />
-        <div style={{
-          position: 'absolute', inset: 0,
-          background: 'radial-gradient(ellipse at center, transparent 62%, rgba(60,220,255,0.10) 100%)',
-          mixBlendMode: 'screen',
-          transform: 'translate(2px, 0)',
-        }} />
-
-        {/* ─── FILM GRAIN ─── */}
-        <div className="jv-grain" />
-
-        {/* ─── CRT SCANLINES ─── */}
-        <div style={{
-          position: 'absolute', inset: 0,
-          background: 'repeating-linear-gradient(0deg, transparent 0, transparent 2px, rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 3px)',
-          mixBlendMode: 'multiply',
-          opacity: 0.5,
-        }} />
-
-        {/* ─── INNER BLOOM HALO ─── */}
-        <div style={{
-          position: 'absolute', inset: 0,
-          boxShadow: 'inset 0 0 240px rgba(108,244,255,0.10), inset 0 0 60px rgba(108,244,255,0.07)',
-        }} />
-
-        {/* ─── DIAGONAL SCAN SWEEP during briefing ─── */}
-        {cinematic && (
+          position: 'absolute', inset: 0, pointerEvents: 'none',
+          zIndex: 998,
+        }}>
+          {/* ─── VIGNETTE ─── */}
           <div style={{
             position: 'absolute', inset: 0,
-            background: 'linear-gradient(180deg, transparent 0%, rgba(108,244,255,0.06) 48%, rgba(200,253,255,0.12) 50%, rgba(108,244,255,0.06) 52%, transparent 100%)',
-            backgroundSize: '100% 280%',
-            animation: 'jv-full-scan 9s linear infinite',
-            mixBlendMode: 'screen',
-            opacity: 0.6,
+            background: 'radial-gradient(ellipse 120% 85% at center, transparent 28%, rgba(0,0,0,0.35) 72%, rgba(0,0,0,0.85) 100%)',
+            mixBlendMode: 'multiply',
           }} />
-        )}
-      </div>
+
+          {/* ─── CHROMATIC EDGE SPLIT ─── */}
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'radial-gradient(ellipse at center, transparent 62%, rgba(255,60,130,0.10) 100%)',
+            mixBlendMode: 'screen',
+          }} />
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'radial-gradient(ellipse at center, transparent 62%, rgba(60,220,255,0.10) 100%)',
+            mixBlendMode: 'screen',
+            transform: 'translate(2px, 0)',
+          }} />
+
+          {/* ─── FILM GRAIN ─── */}
+          <div className="jv-grain" />
+
+          {/* ─── CRT SCANLINES ─── */}
+          <div style={{
+            position: 'absolute', inset: 0,
+            background: 'repeating-linear-gradient(0deg, transparent 0, transparent 2px, rgba(0,0,0,0.07) 2px, rgba(0,0,0,0.07) 3px)',
+            mixBlendMode: 'multiply',
+            opacity: 0.5,
+          }} />
+
+          {/* ─── INNER BLOOM HALO ─── */}
+          <div style={{
+            position: 'absolute', inset: 0,
+            boxShadow: 'inset 0 0 240px rgba(108,244,255,0.10), inset 0 0 60px rgba(108,244,255,0.07)',
+          }} />
+
+          {/* ─── DIAGONAL SCAN SWEEP during briefing ─── */}
+          {cinematic && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              background: 'linear-gradient(180deg, transparent 0%, rgba(108,244,255,0.06) 48%, rgba(200,253,255,0.12) 50%, rgba(108,244,255,0.06) 52%, transparent 100%)',
+              backgroundSize: '100% 280%',
+              animation: 'jv-full-scan 9s linear infinite',
+              mixBlendMode: 'screen',
+              opacity: 0.6,
+            }} />
+          )}
+        </div>
+      )}
 
       {/* ═══ VIEWPORT CORNER BRACKETS — above everything ═══ */}
       {awake && (
@@ -142,10 +168,12 @@ const css = `
     width: 32px; height: 32px;
     border: 1.5px solid #6cf4ff;
     opacity: 0.9;
-    filter: drop-shadow(0 0 8px #6cf4ff);
+    /* drop-shadow replaced with box-shadow — same glow, compositor-only,
+       no per-frame filter raster. Breathe animation removed — it was
+       animating a filter which is the single most expensive CSS op. */
+    box-shadow: 0 0 8px rgba(108, 244, 255, 0.65);
     z-index: 9998;
     pointer-events: none;
-    animation: jv-vp-breathe 4s ease-in-out infinite;
   }
   .jv-vp-corner::after {
     content: ''; position: absolute;
@@ -167,7 +195,9 @@ const css = `
     50%      { opacity: 1; filter: drop-shadow(0 0 12px #6cf4ff) drop-shadow(0 0 20px rgba(108,244,255,0.4)); }
   }
 
-  /* ═══ FILM GRAIN ═══ */
+  /* ═══ FILM GRAIN ═══ (animation slowed 8× — jitter at 0.24s = 33Hz was
+     hammering compositor with mixBlendMode layer repaint 33x/sec. At
+     2s / 4-step it still reads as grain jitter, 8x less work.) */
   .jv-grain {
     position: absolute; inset: -4%;
     pointer-events: none;
@@ -175,7 +205,7 @@ const css = `
     background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='220' height='220'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.95' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0.42 0 0 0 0 0.96 0 0 0 0 1 0 0 0 0.9 0'/></filter><rect width='220' height='220' filter='url(%23n)' opacity='0.35'/></svg>");
     background-size: 220px 220px;
     mix-blend-mode: screen;
-    animation: jv-grain-jitter 0.24s steps(8) infinite;
+    animation: jv-grain-jitter 2s steps(4) infinite;
   }
 
   @keyframes jv-grain-jitter {

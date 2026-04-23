@@ -8,7 +8,8 @@ export const CONFIG = {
   // Local MP3 path (served from /public/audio). AC/DC "Back in Black" —
   // Iron Man (2008) opening credits / Tony Stark intro scene track.
   musicTrack:
-    (import.meta as any).env?.VITE_MUSIC_TRACK ?? '/audio/opt1-back-in-black.mp3',
+    (import.meta as any).env?.VITE_MUSIC_TRACK ??
+    `${(import.meta as any).env?.BASE_URL ?? '/'}audio/opt1-back-in-black.mp3`,
   musicTitle:
     (import.meta as any).env?.VITE_MUSIC_TITLE ?? 'AC/DC · BACK IN BLACK',
   musicLevel: 0.55,

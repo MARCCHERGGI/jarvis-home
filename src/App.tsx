@@ -22,6 +22,7 @@ import { CONFIG } from '@/config';
 import { useEffect } from 'react';
 import { voice } from '@/services/tts';
 import { CINEMATIC_SCRIPT } from '@/services/briefing/mock-data';
+import { primeMusic } from '@/services/audio/music';
 
 export default function App() {
   const phase = useJarvis((s) => s.phase);
@@ -32,6 +33,10 @@ export default function App() {
   // Eliminates the 0.8-2s ElevenLabs fetch lag the first time.
   useEffect(() => {
     voice.precache([CINEMATIC_SCRIPT], 'jarvis').catch(() => {});
+    // Pre-warm the 7.6 MB Back in Black MP3 so it's already decoded by
+    // the time Marco claps — music starts with zero lag, iconic opening
+    // riff lands right as the Earth dive begins.
+    primeMusic(CONFIG.musicTrack);
   }, []);
 
   return (

@@ -44,24 +44,22 @@ const isMonday = () => new Date().getDay() === 1;
 //   beat 1 (t≈ 1.2s)  → SOCIAL
 //   beat 2 (t≈ 6.8s)  → TRADING
 //   beat 3 (t≈10.5s)  → SCHEDULE
-// JARVIS system briefing — formal, measured, Paul-Bettany cadence.
-// MUSIC (AC/DC) opens at t≈0 so it plays under the whole narration.
-// Panels reveal as their topic is spoken.
+// JARVIS system briefing — concise, charismatic, one breath.
+// Music opens instantly and underscores the whole narration.
+// Four content panels reveal as their cue lands — ~1.2s per beat
+// so the strings have time to place each one cleanly.
 //
-//   0.1s  MUSIC     (opens as briefing begins)
-//   3.7s  TRADING   ("Global markets showing increased volatility…")
-//   9.0s  BITCOIN   ("Bitcoin is currently holding trend…")
-//  11.5s  SOCIAL    ("You gained three hundred fifty-six new followers…")
+//   0.0s  MUSIC     (opens as briefing begins — underscore)
+//   1.3s  TRADING   ("Markets are restless…")
+//   3.6s  BITCOIN   ("Bitcoin holds trend.")
+//   5.6s  SOCIAL    ("three hundred fifty-six…")
+//   8.0s  SCHEDULE  ("Schedule is locked.")
 const SCRIPT =
-  `Good morning, Marco. Systems are online. ` +
-  `Global markets are showing increased volatility. ` +
-  `Strait of Hormuz tensions are escalating. ` +
-  `Your AI trading systems are active. ` +
-  `Bitcoin is currently holding trend. ` +
-  `You gained three hundred fifty-six new followers across your platforms. ` +
-  `Growth momentum is accelerating. ` +
-  `New opportunities detected. ` +
-  `What would you like to execute today?`;
+  `Our agents monitoring the Strait of Hormuz have detected opportunity in oil and gold. ` +
+  `The trading bots are sixty-nine percent profitable, with Bitcoin getting close to eighty thousand dollars. ` +
+  `The social media monitoring team has detected three hundred fifty-six new followers across all social media. ` +
+  `Meanwhile, I've opened the mini panels — I'm using all free AI, and opened your socials for you. ` +
+  `Finally, you have two events to attend tonight in downtown Manhattan.`;
 
 const WEEKDAY = SCRIPT;
 const MONDAY  = SCRIPT;

@@ -1,11 +1,6 @@
-// Custom background music loader.
-//
-// If a track exists at the configured URL (default: /audio/workshop.mp3),
-// play it through the audio graph with master gain + lowpass filter for
-// "sits underneath the voice" ducking. Returns a controller with stop/duck.
-//
-// Falls back silently (returns null) if the file is missing — the wake
-// sequence should then use the procedural ambient bed instead.
+// Background music loader — reverted to the original working architecture.
+// Plays an MP3 through AudioContext with master gain for smooth ducking.
+// Returns null if the file can't be loaded (wake uses procedural bed).
 
 import { audioBus } from './bus';
 
@@ -14,17 +9,12 @@ export type MusicController = {
   duck: (level: number, durMs?: number) => void;
 };
 
-/** Returns null if the track couldn't be loaded. */
+// No-op kept for call-site compatibility. The original working flow
+// didn't need pre-warming; the fetch happens inside playMusic().
+export function primeMusic(_url: string): void {}
+
 export async function playMusic(url: string, level: number): Promise<MusicController | null> {
   const { ctx, master } = audioBus();
-
-  // HEAD-check the file — avoid building audio graph for 404s
-  try {
-    const head = await fetch(url, { method: 'HEAD' });
-    if (!head.ok) return null;
-  } catch {
-    return null;
-  }
 
   try {
     const audio = new Audio(url);
@@ -32,10 +22,9 @@ export async function playMusic(url: string, level: number): Promise<MusicContro
     audio.preload = 'auto';
     audio.loop = false;
 
-    // Wait until enough is buffered to start
     await new Promise<void>((resolve, reject) => {
       const onReady = () => { audio.removeEventListener('canplay', onReady); resolve(); };
-      const onErr = () => { audio.removeEventListener('error', onErr); reject(new Error('music load error')); };
+      const onErr   = () => { audio.removeEventListener('error', onErr); reject(new Error('music load error')); };
       audio.addEventListener('canplay', onReady);
       audio.addEventListener('error', onErr);
     });

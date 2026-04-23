@@ -3,7 +3,6 @@ import maplibregl, { Map as MLMap, StyleSpecification } from 'maplibre-gl';
 import 'maplibre-gl/dist/maplibre-gl.css';
 import { useJarvis } from '@/state/store';
 import { SOHO } from '@/scenes/astronomy';
-import { ampBus } from '@/services/audio/ampBus';
 
 // ══════════════════════════════════════════════════════════════
 // NEON MANHATTAN · TACTICAL RECON MODE
@@ -139,7 +138,7 @@ export function ManhattanMap() {
     const map = new maplibregl.Map({
       container: containerRef.current, style: STYLE,
       center: [SOHO.lon, SOHO.lat], zoom: 11, bearing: -10, pitch: 35,
-      interactive: false, attributionControl: false, antialias: true,
+      interactive: false, attributionControl: false, antialias: false,
       maxPitch: 85, fadeDuration: 0,
     });
     mapRef.current = map;
@@ -201,23 +200,8 @@ export function ManhattanMap() {
     } else if (phase === 'briefing' || phase === 'ready') {
       map.easeTo({ center: [SOHO.lon, SOHO.lat], zoom: 16.2, bearing: 0, pitch: 72,
         duration: 2200, easing: easeInOutCubic });
-
-      const startTour = () => {
-        let i = 0;
-        const next = () => {
-          const wp = TOUR[i % TOUR.length];
-          setWaypoint(wp);
-          setGlitchKey(k => k + 1); // trigger scan wipe transition
-          map.easeTo({
-            center: wp.center, zoom: wp.zoom, pitch: wp.pitch, bearing: wp.bearing,
-            duration: wp.duration, easing: (t) => t,
-          });
-          i++;
-          tourTimerRef.current = window.setTimeout(next, wp.duration - 80);
-        };
-        tourTimerRef.current = window.setTimeout(next, 2400);
-      };
-      startTour();
+      // Tour disabled for perf — was running easeTo forever, keeping the
+      // map GPU-busy at 60fps. One-time zoom-in is plenty.
     } else {
       map.easeTo({ center: [SOHO.lon, SOHO.lat], zoom: 11, bearing: -10, pitch: 35,
         duration: 800 });
@@ -227,17 +211,8 @@ export function ManhattanMap() {
   const visible = phase === 'descending' || phase === 'briefing' || phase === 'ready';
   const fullyVisible = phase === 'briefing' || phase === 'ready';
 
-  // Voice-reactive CSS variable — ampBus writes at audio rate, we read every frame
-  useEffect(() => {
-    let raf = 0;
-    const pump = () => {
-      const a = Math.min(1, ampBus.amp * 2.2); // boost so small voice variations show
-      document.documentElement.style.setProperty('--jv-amp', a.toFixed(3));
-      raf = requestAnimationFrame(pump);
-    };
-    raf = requestAnimationFrame(pump);
-    return () => cancelAnimationFrame(raf);
-  }, []);
+  // --jv-amp CSS var is pumped by CinematicOverlay (single writer).
+  // Map no longer needs its own loop — removed to eliminate duplicate rAF.
 
   return (
     <div style={{
@@ -339,8 +314,7 @@ export function ManhattanMap() {
       {/* ── CITY COMMAND BAR ── */}
       {fullyVisible && <CityCommandBar waypoint={waypoint} />}
 
-      {/* ── MINI-MAP SECTOR OVERVIEW ── */}
-      {fullyVisible && <MiniMap activeCode={waypoint.code} />}
+      {/* MINI-MAP removed — was overlaying the Trading / Hormuz panel. */}
 
       {/* ── THREAT ZONE HEAT PATCHES ── */}
       {fullyVisible && <ThreatZones positions={landmarkPos} />}

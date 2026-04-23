@@ -95,30 +95,57 @@ export function useWakeSequence() {
     // Panel reveals fire in sync with when JARVIS speaks the topic.
     // Timings are calibrated against Alice's natural cadence on the
     // current CINEMATIC_SCRIPT — each beat lands right as she says it.
-    // Four beats, MUSIC first. Each fires right as JARVIS speaks the topic.
-    //  music    · opens BEFORE speech so AC/DC plays under the narration
-    //  trading  · "Global markets showing increased volatility…"
-    //  bitcoin  · "Bitcoin is currently holding trend…"
-    //  social   · "You gained three hundred fifty-six new followers…"
-    const panelKeys: PanelKey[] = ['music', 'trading', 'bitcoin', 'social'];
-    const panelOffsets = [100, 3700, 9000, 11500];
-    const panelTimers = panelKeys.map((key, i) =>
-      setTimeout(() => {
-        revealPanel(key);
-        chime({ level: 0.07 });
-      }, panelOffsets[i]),
-    );
+    // VOICE-GATED panel reveals. Each panel tied to a keyword phrase in
+    // the script — the panel opens when the audio playback position
+    // actually crosses that phrase. No more wall-clock setTimeouts.
+    //
+    // MUSIC opens instantly (before speech) so AC/DC plays under the narration.
+    // Everything else waits for JARVIS to literally say the word.
+    type Cue = { key: PanelKey; keyword: string | null };
+    const cues: Cue[] = [
+      { key: 'music',    keyword: null },                         // opens instantly — underscore
+      { key: 'trading',  keyword: 'Strait of Hormuz' },           // oil/gold opportunity
+      { key: 'bitcoin',  keyword: 'Bitcoin getting close' },      // ~$80k live price
+      { key: 'social',   keyword: 'social media monitoring' },    // 356 followers
+      { key: 'schedule', keyword: 'two events to attend' },       // downtown Manhattan tonight
+    ];
+    const firedCues = new Set<PanelKey>();
+
+    const fireCue = (key: PanelKey) => {
+      if (firedCues.has(key)) return;
+      firedCues.add(key);
+      revealPanel(key);
+      chime({ level: 0.07 });
+    };
+
+    // Fire MUSIC instantly as briefing starts — no keyword, no wait
+    fireCue('music');
 
     // Speak the whole briefing as a single pre-rendered clip.
     await precachePromise;
     await voice.speak(script, {
       voice: 'jarvis',
-      onAmplitude: setVoiceAmp,
+      // NOTE: amplitude is published directly to ampBus (zero-latency ref
+      // read) by the TTS layer. Do NOT wire it through the Zustand store —
+      // that was firing a store update 60+Hz and causing every subscribed
+      // component to re-check selectors, the #1 lag source in the app.
+      onTimeUpdate: (currentTime, duration) => {
+        if (!duration || duration <= 0) return;
+        // Each keyword's position in the script → fraction of total → time
+        for (const cue of cues) {
+          if (cue.keyword === null) continue;
+          if (firedCues.has(cue.key)) continue;
+          const idx = script.indexOf(cue.keyword);
+          if (idx < 0) continue;
+          const triggerAt = (idx / script.length) * duration;
+          if (currentTime >= triggerAt) fireCue(cue.key);
+        }
+      },
     });
 
-    // Flush any still-pending panel reveals (in case speech finished early)
-    panelTimers.forEach(clearTimeout);
-    panelKeys.forEach((k) => revealPanel(k));
+    // Safety net — if any cue was missed (audio failed, duration unknown),
+    // reveal everything once speech has finished so the layout is complete.
+    cues.forEach((c) => fireCue(c.key));
 
     // Done — final stinger. Music swells back to full after George finishes.
     impact({ level: 0.45 });

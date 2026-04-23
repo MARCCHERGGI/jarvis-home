@@ -5,11 +5,26 @@ import { startNativeClap } from './services/clap-native';
 import { registerDataSources } from './services/data-sources';
 import { registerScreenRecorder } from './services/screen-recorder';
 
-// Windows GPU process has a flaky code-34 crash with WebGL + Three.js.
-// Fall back to ANGLE + in-process GPU so the window stays stable.
+// ── GPU FLAGS — MINIMAL, BATTLE-TESTED ──
+// Previous rounds added a whole kitchen-sink of "perf" flags that
+// triggered a NOTREACHED assertion inside Chromium when the wake
+// sequence started audio + animation. Stripped to the original three
+// plus two safe foreground-throttling disables. Everything else is
+// removed — speculative flags cause Chromium native-code crashes.
 app.commandLine.appendSwitch('use-angle', 'gl');
 app.commandLine.appendSwitch('disable-gpu-sandbox');
 app.commandLine.appendSwitch('no-sandbox');
+
+// Safe: just tells Chromium "this is a foreground kiosk app, don't
+// throttle rAF / timers when you think it's backgrounded."
+app.commandLine.appendSwitch('disable-background-timer-throttling');
+app.commandLine.appendSwitch('disable-renderer-backgrounding');
+
+// Clap detection runs in main process via ffmpeg — that's not a
+// "user gesture" to Chromium, so HTMLMediaElement.play() was being
+// blocked by autoplay policy and music went silent. Allowing autoplay
+// without a gesture is the standard kiosk-app posture.
+app.commandLine.appendSwitch('autoplay-policy', 'no-user-gesture-required');
 
 let win: BrowserWindow | null = null;
 
@@ -29,6 +44,11 @@ function createWindow() {
       nodeIntegration: false,
       webSecurity: true,
       webviewTag: true,  // enables <webview> for embedded web panels
+      // Never throttle this renderer — even if the OS thinks another
+      // window is focused. JARVIS_HOME is a full-screen kiosk app and
+      // must keep animating at full speed. This is the main-window
+      // counterpart to the command-line flags above.
+      backgroundThrottling: false,
     },
   });
 

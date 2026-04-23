@@ -85,7 +85,9 @@ function CryptoTicker() {
 function Chronometer() {
   const [now, setNow] = useState(() => new Date());
   useEffect(() => {
-    const id = setInterval(() => setNow(new Date()), 53);
+    // 250ms = 4Hz, still reads as "live" ms digits. Was 53ms = 19Hz —
+    // a hidden React re-render storm.
+    const id = setInterval(() => setNow(new Date()), 250);
     return () => clearInterval(id);
   }, []);
   const hh = now.getHours().toString().padStart(2, '0');
@@ -138,8 +140,13 @@ function CursorGlow() {
     const ctx = canvas.getContext('2d')!;
     ctx.scale(dpr, dpr);
 
+    let raf = 0;
+    let lastMoveT = 0;
+    let dirty = false;  // canvas has non-clear content that needs clearing
+
     const onMove = (e: MouseEvent) => {
       mouseRef.current = { x: e.clientX, y: e.clientY, active: true };
+      lastMoveT = performance.now();
       for (let i = 0; i < 2; i++) {
         particlesRef.current.push({
           x: e.clientX + (Math.random() - 0.5) * 10,
@@ -151,10 +158,26 @@ function CursorGlow() {
     };
     window.addEventListener('mousemove', onMove);
 
-    let raf = 0;
     const tick = () => {
+      const now = performance.now();
+      const hasParticles = particlesRef.current.length > 0;
+      const mouseRecent = (now - lastMoveT) < 600;
+
+      // Idle fast-path — no particles, mouse hasn't moved in a while.
+      // Skip full-screen clear + draw entirely. This was the silent lag
+      // source burning a full compositor frame every 16ms forever.
+      if (!hasParticles && !mouseRecent) {
+        if (dirty) {
+          ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+          dirty = false;
+        }
+        raf = requestAnimationFrame(tick);
+        return;
+      }
+
       ctx.clearRect(0, 0, window.innerWidth, window.innerHeight);
       ctx.globalCompositeOperation = 'lighter';
+      dirty = true;
 
       particlesRef.current = particlesRef.current.filter(p => {
         p.life -= 0.025;
@@ -166,8 +189,8 @@ function CursorGlow() {
         return true;
       });
 
-      // Main cursor glow
-      if (mouseRef.current.active) {
+      // Main cursor glow — only while mouse recent.
+      if (mouseRecent && mouseRef.current.active) {
         const { x, y } = mouseRef.current;
         const grad = ctx.createRadialGradient(x, y, 0, x, y, 50);
         grad.addColorStop(0, 'rgba(108, 244, 255, 0.25)');
@@ -196,7 +219,10 @@ function CursorGlow() {
         position: 'fixed', inset: 0,
         pointerEvents: 'none',
         zIndex: 9998,
-        mixBlendMode: 'screen',
+        // mixBlendMode removed — forced compositor to blend this full-
+        // screen layer against everything underneath every paint, even
+        // when the canvas was empty. Visual diff is trivial since the
+        // trail uses low-alpha cyan anyway.
       }}
     />
   );
