@@ -69,8 +69,13 @@ export function useWakeSequence() {
     let musicCtl: MusicController | null = null;
     let proceduralBed: ReturnType<typeof playAmbientBed> | null = null;
     playMusic(CONFIG.musicTrack, CONFIG.musicLevel).then((ctl) => {
-      if (ctl) musicCtl = ctl;
-      else proceduralBed = playAmbientBed({ level: 0.18 });
+      if (ctl) {
+        musicCtl = ctl;
+        // Expose on window so v2.0 voice commands can stop/duck it.
+        (window as any).__jarvisMusic = ctl;
+      } else {
+        proceduralBed = playAmbientBed({ level: 0.18 });
+      }
     });
 
     // Phase 1: space → Earth

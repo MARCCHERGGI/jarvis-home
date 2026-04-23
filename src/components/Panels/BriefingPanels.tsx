@@ -1,8 +1,34 @@
-import { CSSProperties, useEffect, useState } from 'react';
+import { CSSProperties, useEffect, useRef, useState } from 'react';
 import {
   panelBase, accentedPanel, panelHeader, ACCENT,
   CYAN, OFF_WHITE, GREEN, GOLD,
 } from './styles';
+import { useJarvis } from '@/state/store';
+
+// v2.0 — subtle ring flash when a panel's data just updated. Call on
+// value change with a stable key. The style object is applied to the
+// panel container to do a 600ms border pulse without layout shift.
+function useFlashOnChange<T>(value: T): boolean {
+  const [flash, setFlash] = useState(false);
+  const prev = useRef<T>(value);
+  useEffect(() => {
+    if (prev.current !== value && prev.current !== undefined && prev.current !== null) {
+      setFlash(true);
+      const t = setTimeout(() => setFlash(false), 600);
+      return () => clearTimeout(t);
+    }
+    prev.current = value;
+  }, [value]);
+  return flash;
+}
+
+const flashBoxShadow: CSSProperties = {
+  boxShadow: '0 0 0 1.5px rgba(108,244,255,0.85), 0 0 40px rgba(108,244,255,0.45)',
+  transition: 'box-shadow 600ms cubic-bezier(0.22,1,0.36,1)',
+};
+const flashOff: CSSProperties = {
+  transition: 'box-shadow 1200ms ease-out',
+};
 
 // ──────────────────────────────────────────────────────────────
 // Briefing panels — each has ONE focal point. No clutter.
@@ -431,25 +457,30 @@ function BtcSparkline({ change, color, width = PANEL_WIDTH - 48, height = 54 }: 
 
 // ═══════════ BITCOIN LIVE ═══════════
 export function BitcoinPanel() {
-  // Start null so the panel shows "—" briefly rather than a fake number.
-  // CoinGecko fetch resolves within ~300ms and populates the real price.
-  const [price, setPrice] = useState<number | null>(null);
-  const [change, setChange] = useState<number>(0);
+  // v2.0: read from live pulse instead of own polling. useLivePulse hook
+  // owns the 30s refresh loop during ready phase.
+  const pulseBtc = useJarvis((s) => s.pulse.btc);
+  const [local, setLocal] = useState<{ price: number; change: number } | null>(null);
 
+  // Fallback: during briefing phase (before useLivePulse kicks in at ready)
+  // do one direct fetch so the panel isn't blank on first reveal.
   useEffect(() => {
+    if (pulseBtc) { setLocal(pulseBtc); return; }
     let mounted = true;
-    const fetchPrice = async () => {
+    (async () => {
       try {
         const data = await (window as any).jarvis?.getCrypto?.();
         if (!mounted) return;
-        if (data?.btc?.price) setPrice(data.btc.price);
-        if (data?.btc?.change !== undefined) setChange(data.btc.change);
+        if (data?.btc?.price) setLocal({ price: data.btc.price, change: data.btc.change ?? 0 });
       } catch {}
-    };
-    fetchPrice();
-    const id = setInterval(fetchPrice, 20000);
-    return () => { mounted = false; clearInterval(id); };
-  }, []);
+    })();
+    return () => { mounted = false; };
+  }, [pulseBtc]);
+
+  const current = pulseBtc ?? local;
+  const price  = current?.price ?? null;
+  const change = current?.change ?? 0;
+  const flash = useFlashOnChange(price);
 
   const up = change >= 0;
   const changeColor = up ? GREEN : '#ff5b6b';
@@ -458,7 +489,7 @@ export function BitcoinPanel() {
     : '—';
 
   return (
-    <div style={{ ...accentedPanel(ACCENT.gold), width: PANEL_WIDTH }}>
+    <div style={{ ...accentedPanel(ACCENT.gold), width: PANEL_WIDTH, ...(flash ? flashBoxShadow : flashOff) }}>
       <div style={panelHeader}>
         <span>BITCOIN · LIVE</span>
         <span style={{ color: changeColor, fontFamily: 'var(--mono), monospace', fontSize: 10 }}>

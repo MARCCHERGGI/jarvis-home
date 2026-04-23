@@ -11,6 +11,7 @@ import {
 import { MiniLLMPanels } from '@/components/Panels/MiniLLMPanels';
 import { SpiritStrings } from '@/components/SpiritStrings/SpiritStrings';
 import { GLOBAL_PANEL_CSS } from '@/components/Panels/styles';
+import { ExpandablePanel } from '@/components/Panels/ExpandablePanel';
 
 // Briefing panel geometry — PANEL_WIDTH=320, height ≈ 260 in BriefingPanels.
 const PANEL_W = 320;
@@ -126,15 +127,17 @@ export function BootSequence() {
           transition={{ duration: 0.4, ease: [0.22, 1, 0.36, 1] }}
           style={{ position: 'absolute', inset: 0, pointerEvents: 'none' }}
         >
-          {/* ── 4 CONTENT PANELS at corners ── */}
+          {/* ── 4 CONTENT PANELS at corners ── (v2.0: click-to-expand) */}
           <AnimatePresence>
             {revealed.has('social') && (
               <motion.div key="social" {...springFromOrb(leftCx, topCy, vw, vh)}
-                style={{ position: 'absolute', top: TOP_Y, left: EDGE_GAP, willChange: 'transform, opacity' }}>
-                <div style={{ position: 'relative' }}>
-                  <SocialPanel />
-                  <div style={touchFlash} />
-                </div>
+                style={{ position: 'absolute', top: TOP_Y, left: EDGE_GAP, willChange: 'transform, opacity', pointerEvents: 'auto' }}>
+                <ExpandablePanel panelKey="social">
+                  <div style={{ position: 'relative' }}>
+                    <SocialPanel />
+                    <div style={touchFlash} />
+                  </div>
+                </ExpandablePanel>
               </motion.div>
             )}
           </AnimatePresence>
@@ -142,11 +145,13 @@ export function BootSequence() {
           <AnimatePresence>
             {revealed.has('trading') && (
               <motion.div key="trading" {...springFromOrb(rightCx, topCy, vw, vh)}
-                style={{ position: 'absolute', top: TOP_Y, right: EDGE_GAP, willChange: 'transform, opacity' }}>
-                <div style={{ position: 'relative' }}>
-                  <TradingStrategyPanel />
-                  <div style={touchFlash} />
-                </div>
+                style={{ position: 'absolute', top: TOP_Y, right: EDGE_GAP, willChange: 'transform, opacity', pointerEvents: 'auto' }}>
+                <ExpandablePanel panelKey="trading">
+                  <div style={{ position: 'relative' }}>
+                    <TradingStrategyPanel />
+                    <div style={touchFlash} />
+                  </div>
+                </ExpandablePanel>
               </motion.div>
             )}
           </AnimatePresence>
@@ -154,11 +159,13 @@ export function BootSequence() {
           <AnimatePresence>
             {revealed.has('bitcoin') && (
               <motion.div key="bitcoin" {...springFromOrb(leftCx, bottomCy, vw, vh)}
-                style={{ position: 'absolute', bottom: BOT_Y_INSET, left: EDGE_GAP, willChange: 'transform, opacity' }}>
-                <div style={{ position: 'relative' }}>
-                  <BitcoinPanel />
-                  <div style={touchFlash} />
-                </div>
+                style={{ position: 'absolute', bottom: BOT_Y_INSET, left: EDGE_GAP, willChange: 'transform, opacity', pointerEvents: 'auto' }}>
+                <ExpandablePanel panelKey="bitcoin">
+                  <div style={{ position: 'relative' }}>
+                    <BitcoinPanel />
+                    <div style={touchFlash} />
+                  </div>
+                </ExpandablePanel>
               </motion.div>
             )}
           </AnimatePresence>
@@ -166,11 +173,13 @@ export function BootSequence() {
           <AnimatePresence>
             {revealed.has('schedule') && (
               <motion.div key="schedule" {...springFromOrb(rightCx, bottomCy, vw, vh)}
-                style={{ position: 'absolute', bottom: BOT_Y_INSET, right: EDGE_GAP, willChange: 'transform, opacity' }}>
-                <div style={{ position: 'relative' }}>
-                  <SchedulePanel />
-                  <div style={touchFlash} />
-                </div>
+                style={{ position: 'absolute', bottom: BOT_Y_INSET, right: EDGE_GAP, willChange: 'transform, opacity', pointerEvents: 'auto' }}>
+                <ExpandablePanel panelKey="schedule">
+                  <div style={{ position: 'relative' }}>
+                    <SchedulePanel />
+                    <div style={touchFlash} />
+                  </div>
+                </ExpandablePanel>
               </motion.div>
             )}
           </AnimatePresence>

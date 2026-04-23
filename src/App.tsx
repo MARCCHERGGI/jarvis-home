@@ -16,6 +16,8 @@ import { FocusMode } from '@/components/Overlay/FocusMode';
 import { ShortcutHelp } from '@/components/Overlay/ShortcutHelp';
 import { useWakeSequence } from '@/hooks/useWakeSequence';
 import { useClap } from '@/hooks/useClap';
+import { useLivePulse } from '@/hooks/useLivePulse';
+import { useVoiceCommands } from '@/hooks/useVoiceCommands';
 import { useJarvis } from '@/state/store';
 import { CONFIG } from '@/config';
 
@@ -28,6 +30,9 @@ export default function App() {
   const phase = useJarvis((s) => s.phase);
   const wake = useWakeSequence();
   useClap(wake);
+  // v2.0 Alive Mode: post-briefing live data + voice commands.
+  useLivePulse();
+  useVoiceCommands(wake);
 
   // Pre-render the voice on mount so SPACE triggers instant playback.
   // Eliminates the 0.8-2s ElevenLabs fetch lag the first time.
