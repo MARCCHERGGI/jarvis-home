@@ -2,7 +2,10 @@ node_modules/
 dist/
 dist-electron/
 release/
-build/
+
+# Electron-builder output dir is `release/` (see package.json `build.directories.output`).
+# `build/` here used to be ignored too — kept it tracked because it now holds
+# entitlements.mac.plist + icon resources required by the build pipeline.
 
 .env
 .env.local
@@ -21,3 +24,15 @@ public/audio/*.mp3
 !public/audio/README.md
 
 .vercel
+
+# ── Personal / branded overrides — never ship in a public commit ──
+# A user's local script with their actual market angle, follower count,
+# tonight's events, etc. Public clones use GENERIC_SCRIPT in mock-data.ts.
+src/services/briefing/morning.private.ts
+src/services/briefing/*.private.ts
+briefing-scripts/*.private.md
+briefing-scripts/*.marco.md
+
+# User's runtime config — connected services, voice ID, persona.
+jarvis.config.json
+jarvis.config.local.json

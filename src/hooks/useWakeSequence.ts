@@ -1,7 +1,7 @@
 import { useCallback } from 'react';
 import { useJarvis } from '@/state/store';
 import { voice } from '@/services/tts';
-import { buildSegments, type BriefingContext, type PanelKey } from '@/services/briefing/mock-data';
+import { buildSegments, getActiveCues, type BriefingContext, type PanelKey } from '@/services/briefing/mock-data';
 import { playAmbientBed } from '@/services/audio/ambient';
 import { playMusic, type MusicController } from '@/services/audio/music';
 import { whoosh, chime, impact, riser } from '@/services/audio/sfx';
@@ -98,22 +98,26 @@ export function useWakeSequence() {
     setVoiceActive(true);
 
     // Panel reveals fire in sync with when JARVIS speaks the topic.
-    // Timings are calibrated against Alice's natural cadence on the
-    // current CINEMATIC_SCRIPT — each beat lands right as she says it.
-    // VOICE-GATED panel reveals. Each panel tied to a keyword phrase in
-    // the script — the panel opens when the audio playback position
-    // actually crosses that phrase. No more wall-clock setTimeouts.
+    // VOICE-GATED panel reveals. Each panel is tied to a keyword phrase in
+    // the script — the panel opens when audio playback position crosses
+    // that phrase.
+    //
+    // Old approach (broken): triggerAt = (charIndex / script.length) * duration.
+    // That assumed constant chars-per-second, which is false — punctuation
+    // pauses, multi-syllable words, and ElevenLabs emphasis all skew the
+    // mapping. Some panels fired half a sentence early, others late.
+    //
+    // New approach: word-count timing with explicit sentence-pause budget.
+    // ElevenLabs Alice spends ≈280ms on each '.', '!', '?' regardless of
+    // surrounding word count, so we subtract that from total duration to
+    // get pure speaking time, then estimate words-per-second from there.
+    // Plus a small lead so the panel slides in as the word starts, not after.
     //
     // MUSIC opens instantly (before speech) so AC/DC plays under the narration.
-    // Everything else waits for JARVIS to literally say the word.
+    // Cues come from the active briefing script — generic in the public repo,
+    // overridden by `morning.private.ts` (gitignored) on personal installs.
     type Cue = { key: PanelKey; keyword: string | null };
-    const cues: Cue[] = [
-      { key: 'music',    keyword: null },                         // opens instantly — underscore
-      { key: 'trading',  keyword: 'Strait of Hormuz' },           // oil/gold opportunity
-      { key: 'bitcoin',  keyword: 'Bitcoin getting close' },      // ~$80k live price
-      { key: 'social',   keyword: 'social media monitoring' },    // 356 followers
-      { key: 'schedule', keyword: 'two events to attend' },       // downtown Manhattan tonight
-    ];
+    const cues: Cue[] = getActiveCues();
     const firedCues = new Set<PanelKey>();
 
     const fireCue = (key: PanelKey) => {
@@ -123,33 +127,88 @@ export function useWakeSequence() {
       chime({ level: 0.07 });
     };
 
-    // Fire MUSIC instantly as briefing starts — no keyword, no wait
+    // Validate cue keywords exist in current script — surface drift early.
+    for (const c of cues) {
+      if (c.keyword && script.indexOf(c.keyword) < 0) {
+        console.warn(`[wake] cue keyword missing from script — '${c.key}' will fire on safety net: "${c.keyword}"`);
+      }
+    }
+
+    // Fire MUSIC instantly as briefing starts — no keyword, no wait.
     fireCue('music');
+
+    // Build the panel-reveal schedule UPFRONT, before speech starts.
+    // Critical: do NOT depend on audio.duration — the TTS layer reports 0
+    // when audio.duration is Infinity (streaming MP3 blobs), which would
+    // bail every timeupdate and force the safety net to fire everything at
+    // the end. We use a fixed words-per-second estimate calibrated against
+    // ElevenLabs Alice (British, speed 1.08) on this script.
+    //
+    // Two redundant trigger paths:
+    //   1) wall-clock setTimeouts armed on the audio "play" event
+    //   2) audio.currentTime crossings via onTimeUpdate
+    // Whichever fires first per cue wins (firedCues set dedupes).
+    const ALICE_WPS         = 3.0;   // measured ~3.0 w/s for Alice on this script
+    const SENTENCE_PAUSE_S  = 0.28;  // measured pause budget per `.!?`
+    const PRE_OFFSET_S      = 0.15;  // open panel ~150ms BEFORE the keyword
+    type CueSchedule = { key: PanelKey; time: number };
+
+    const countWords = (s: string) => s.trim().split(/\s+/).filter(Boolean).length;
+
+    const schedule: CueSchedule[] = cues.map((cue) => {
+      if (cue.keyword === null) return { key: cue.key, time: 0 };
+      const idx = script.indexOf(cue.keyword);
+      if (idx < 0) return { key: cue.key, time: Number.POSITIVE_INFINITY };
+      const before = script.slice(0, idx);
+      const wordsBefore = countWords(before);
+      const sentencesBefore = (before.match(/[.!?]/g) ?? []).length;
+      const t = wordsBefore / ALICE_WPS + sentencesBefore * SENTENCE_PAUSE_S - PRE_OFFSET_S;
+      return { key: cue.key, time: Math.max(0, t) };
+    });
+
+    console.log(
+      '[wake] cue schedule (upfront, no duration dep):',
+      schedule.map((s) => `${s.key}@${isFinite(s.time) ? s.time.toFixed(2) + 's' : 'late'}`).join(', ')
+    );
+
+    // Wall-clock timeouts armed when speech actually starts playing.
+    const timeoutIds: number[] = [];
 
     // Speak the whole briefing as a single pre-rendered clip.
     await precachePromise;
     await voice.speak(script, {
       voice: 'jarvis',
+      onStart: () => {
+        // Audio actually started playing — arm wall-clock timers from t=0.
+        for (const cs of schedule) {
+          if (cs.key === 'music') continue;        // already fired
+          if (!isFinite(cs.time)) continue;        // keyword missing
+          if (cs.time <= 0) { fireCue(cs.key); continue; }
+          const id = window.setTimeout(() => {
+            fireCue(cs.key);
+          }, cs.time * 1000);
+          timeoutIds.push(id);
+        }
+      },
       // NOTE: amplitude is published directly to ampBus (zero-latency ref
       // read) by the TTS layer. Do NOT wire it through the Zustand store —
       // that was firing a store update 60+Hz and causing every subscribed
       // component to re-check selectors, the #1 lag source in the app.
-      onTimeUpdate: (currentTime, duration) => {
-        if (!duration || duration <= 0) return;
-        // Each keyword's position in the script → fraction of total → time
-        for (const cue of cues) {
-          if (cue.keyword === null) continue;
-          if (firedCues.has(cue.key)) continue;
-          const idx = script.indexOf(cue.keyword);
-          if (idx < 0) continue;
-          const triggerAt = (idx / script.length) * duration;
-          if (currentTime >= triggerAt) fireCue(cue.key);
+      onTimeUpdate: (currentTime) => {
+        // Use audio currentTime as the more accurate trigger when available.
+        // If audio is silent or stuck, the wall-clock timeouts above still fire.
+        for (const cs of schedule) {
+          if (firedCues.has(cs.key)) continue;
+          if (isFinite(cs.time) && currentTime >= cs.time) fireCue(cs.key);
         }
       },
     });
 
-    // Safety net — if any cue was missed (audio failed, duration unknown),
-    // reveal everything once speech has finished so the layout is complete.
+    // Speech ended — clear any pending timeouts (most have already fired).
+    timeoutIds.forEach((id) => clearTimeout(id));
+
+    // Safety net — anything still missing (e.g. keyword removed) fires now
+    // so the layout is complete by ready phase.
     cues.forEach((c) => fireCue(c.key));
 
     // Done — final stinger. Music swells back to full after George finishes.

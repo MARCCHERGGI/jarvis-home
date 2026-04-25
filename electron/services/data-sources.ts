@@ -302,7 +302,7 @@ async function readTrimmed(path: string, maxChars: number): Promise<string> {
 
 async function getLatestOpenClawNote(maxChars: number): Promise<string> {
   try {
-    const notesDir = join(HOME, '.openclaw', 'workspace', 'memory');
+    const notesDir = process.env.JARVIS_OPENCLAW_DIR || join(HOME, '.openclaw', 'workspace', 'memory');
     const files = await fs.readdir(notesDir);
     const dated = files
       .filter((f) => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
@@ -316,7 +316,9 @@ async function getLatestOpenClawNote(maxChars: number): Promise<string> {
 }
 
 async function getMorningContext(): Promise<any> {
-  const memDir = join(HOME, '.claude', 'projects', 'C--Users-hergi', 'memory');
+  // Path is env-driven so the open-source build doesn't bake one user's directory in.
+  // Defaults to ~/.jarvis/memory; users drop their context files there.
+  const memDir = process.env.JARVIS_MEMORY_DIR || join(HOME, '.jarvis', 'memory');
   const [mind, warPlan, latestNote, frontier] = await Promise.all([
     readTrimmed(join(memDir, 'mind_intelligence.md'), 2400),
     readTrimmed(join(memDir, 'project_war_plan.md'), 1400),

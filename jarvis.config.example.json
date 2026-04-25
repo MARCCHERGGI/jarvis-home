@@ -1,0 +1,56 @@
+{
+  "$schema": "https://jarvis-landing-theta.vercel.app/jarvis.config.schema.json",
+
+  "user": {
+    "firstName": "",
+    "city": "New York",
+    "lat": 40.7233,
+    "lon": -74.0030
+  },
+
+  "voice": {
+    "provider": "elevenlabs",
+    "voiceId": "Xb7hH8MSUJpSbSDYk0k2",
+    "voicePreset": "alice",
+    "speed": 1.08
+  },
+
+  "scene": {
+    "name": "earth",
+    "options": {
+      "dayNightTerminator": true,
+      "atmosphere": true,
+      "clouds": true
+    }
+  },
+
+  "brain": {
+    "provider": "ollama",
+    "model": "llama3.2:3b",
+    "fallbackChain": ["groq", "anthropic", "openai"]
+  },
+
+  "briefing": {
+    "script": "morning",
+    "openMusicPanel": true,
+    "panels": {
+      "trading": true,
+      "bitcoin": true,
+      "social": true,
+      "schedule": true
+    }
+  },
+
+  "dataSources": {
+    "weather": { "enabled": true, "provider": "openmeteo" },
+    "calendar": { "enabled": false, "provider": null },
+    "trading": { "enabled": false, "watchlist": [] },
+    "social": { "enabled": false, "platforms": [] }
+  },
+
+  "wake": {
+    "trigger": "clap",
+    "hotkey": "Space",
+    "clapThreshold": 0.45
+  }
+}

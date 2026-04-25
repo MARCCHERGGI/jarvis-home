@@ -17,54 +17,82 @@ export const MOCK_MARKETS: MarketItem[] = [
   { symbol: 'SPY',  price:     612.40, change:  0.22 },
 ];
 
-/**
- * The 12-second cinematic monologue. One flowing line — no dead air.
- * Audio tags ([warm], [confident], etc.) steer v3 delivery.
- * Structure: greet → ground in time/place → state of world → handoff → call to action.
- */
-// Main-character cinematic briefing. JARVIS-style observational cadence,
-// personalized, layered with real-world context: markets, geopolitics, socials.
-// Punctuation handles pacing — no emotion tags.
-// Date-aware briefing — picks variant based on weekday.
+// ──────────────────────────────────────────────────────────────────
+// Briefing scripts — script + matching panel cue keywords.
+// The PUBLIC repo ships GENERIC_SCRIPT only. Personal/branded variants
+// (e.g. someone's actual market thesis, follower count, evening events)
+// live in `morning.private.ts` which is gitignored. If that file is
+// present locally it overrides GENERIC_SCRIPT at build time via Vite glob.
+// ──────────────────────────────────────────────────────────────────
+
+export type PanelKey = 'social' | 'trading' | 'bitcoin' | 'schedule' | 'music';
+
+export type ScriptCue = {
+  key: PanelKey;
+  /** Substring in `text` that triggers this panel reveal. `null` = fire instantly. */
+  keyword: string | null;
+};
+
+export type ScriptDefinition = {
+  text: string;
+  cues: ScriptCue[];
+};
+
+// PUBLIC, ships in OSS. Edit freely — this is the "your turn to make it yours" copy.
+// Variables in {{double-braces}} are interpolated by the brain at runtime; missing
+// ones collapse to empty string, so the script gracefully degrades.
+const GENERIC_SCRIPT: ScriptDefinition = {
+  text:
+    `The agents are awake — markets are moving and signals are showing up. ` +
+    `Bitcoin is holding the trend with the rest of the majors close behind. ` +
+    `The social monitoring layer caught fresh momentum across your channels overnight. ` +
+    `Meanwhile, I've opened the mini panels — fresh AI, your socials, your stack. ` +
+    `Finally, you have items on your calendar today. Let's get to it.`,
+  cues: [
+    { key: 'music',    keyword: null },                      // opens instantly — underscore
+    { key: 'trading',  keyword: 'agents are awake' },        // top-of-briefing macro line
+    { key: 'bitcoin',  keyword: 'Bitcoin is holding' },      // crypto callout
+    { key: 'social',   keyword: 'social monitoring layer' }, // social panel
+    { key: 'schedule', keyword: 'items on your calendar' },  // calendar / events
+  ],
+};
+
+// Try to load a private override at build time. The glob returns an empty map
+// if the file doesn't exist (i.e. on a public clone), so this is safe.
+let _active: ScriptDefinition = GENERIC_SCRIPT;
+try {
+  const privates = import.meta.glob<{ default: ScriptDefinition }>(
+    './morning.private.ts',
+    { eager: true }
+  );
+  const first = Object.values(privates)[0];
+  if (first?.default?.text && first.default.cues) {
+    _active = first.default;
+  }
+} catch {
+  /* keep generic */
+}
+
+export const ACTIVE_SCRIPT: ScriptDefinition = _active;
+
+/** Public accessor for the current cue list — keeps useWakeSequence script-agnostic. */
+export function getActiveCues(): ScriptCue[] {
+  return ACTIVE_SCRIPT.cues;
+}
+
+// ──────────────────────────────────────────────────────────────────
+// Day variants — currently all the same, but the structure is here for
+// you to swap the script by weekday, weekend, holiday, etc.
+// ──────────────────────────────────────────────────────────────────
 const dayName = () => new Date().toLocaleDateString('en-US', { weekday: 'long' });
 const isWeekend = () => [0, 6].includes(new Date().getDay());
 const isFriday = () => new Date().getDay() === 5;
 const isMonday = () => new Date().getDay() === 1;
 
-// Single flowing ~8-second monologue. The whole briefing — one breath,
-// one TTS render, zero cascading lag. Tuned for Alice's British cadence:
-// short clauses, hard consonants, no clutter. Weaves in the real layers
-// of Marco's world: trading agents, energy markets, Strait of Hormuz,
-// Bitcoin, and the e-commerce team shaping his new product.
-// Single flowing ~14s monologue with three distinct topic beats.
-// Panel reveals in useWakeSequence fire at offsets that line up with
-// when each topic is spoken — the orb "places" the page right as Alice
-// mentions it.
-//
-//   beat 1 (t≈ 1.2s)  → SOCIAL
-//   beat 2 (t≈ 6.8s)  → TRADING
-//   beat 3 (t≈10.5s)  → SCHEDULE
-// JARVIS system briefing — concise, charismatic, one breath.
-// Music opens instantly and underscores the whole narration.
-// Four content panels reveal as their cue lands — ~1.2s per beat
-// so the strings have time to place each one cleanly.
-//
-//   0.0s  MUSIC     (opens as briefing begins — underscore)
-//   1.3s  TRADING   ("Markets are restless…")
-//   3.6s  BITCOIN   ("Bitcoin holds trend.")
-//   5.6s  SOCIAL    ("three hundred fifty-six…")
-//   8.0s  SCHEDULE  ("Schedule is locked.")
-const SCRIPT =
-  `Our agents monitoring the Strait of Hormuz have detected opportunity in oil and gold. ` +
-  `The trading bots are sixty-nine percent profitable, with Bitcoin getting close to eighty thousand dollars. ` +
-  `The social media monitoring team has detected three hundred fifty-six new followers across all social media. ` +
-  `Meanwhile, I've opened the mini panels — I'm using all free AI, and opened your socials for you. ` +
-  `Finally, you have two events to attend tonight in downtown Manhattan.`;
-
-const WEEKDAY = SCRIPT;
-const MONDAY  = SCRIPT;
-const FRIDAY  = SCRIPT;
-const WEEKEND = SCRIPT;
+const WEEKDAY = ACTIVE_SCRIPT.text;
+const MONDAY  = ACTIVE_SCRIPT.text;
+const FRIDAY  = ACTIVE_SCRIPT.text;
+const WEEKEND = ACTIVE_SCRIPT.text;
 
 export const CINEMATIC_SCRIPT =
   isWeekend() ? WEEKEND :
@@ -72,12 +100,11 @@ export const CINEMATIC_SCRIPT =
   isFriday()  ? FRIDAY :
   WEEKDAY;
 
-// Structured briefing — each sentence is a separate ElevenLabs render.
-// `openPanel` fires RIGHT BEFORE that sentence plays → guaranteed 1:1 sync.
-export type PanelKey = 'social' | 'trading' | 'bitcoin' | 'schedule' | 'music';
+// ──────────────────────────────────────────────────────────────────
+// Segments + brain context — used by useWakeSequence.
+// ──────────────────────────────────────────────────────────────────
 export type Segment = { text: string; openPanel?: PanelKey };
 
-// ── Number-to-spoken conversion for natural TTS delivery ──
 const SMALL = ['zero','one','two','three','four','five','six','seven','eight','nine',
                'ten','eleven','twelve','thirteen','fourteen','fifteen','sixteen','seventeen','eighteen','nineteen'];
 const TENS = ['','','twenty','thirty','forty','fifty','sixty','seventy','eighty','ninety'];
@@ -92,7 +119,6 @@ function toWords(n: number): string {
     const rest = n % 1000;
     return toWords(thou) + ' thousand' + (rest ? ' ' + toWords(rest) : '');
   }
-  // 10_000+ — speak as grouped thousands, e.g. 118_420 → "one hundred eighteen thousand, four hundred twenty"
   const thou = Math.floor(n/1000);
   const rest = n % 1000;
   return toWords(thou) + ' thousand' + (rest ? ', ' + toWords(rest) : '');
@@ -109,21 +135,18 @@ export type BriefingContext = {
   weatherCond?: string;
 };
 
-// Fallback (used before live data arrives, or when APIs fail).
 export const SEGMENTS: Segment[] = [
   { text: CINEMATIC_SCRIPT, openPanel: 'social' },
 ];
 
 /**
- * Build ONE flowing ~8-second briefing.
- * Returns a single segment using the day-aware CINEMATIC_SCRIPT.
+ * Build ONE flowing briefing. Returns a single segment using the active script.
  * Single TTS render = no cascading latency.
  */
 export function buildSegments(_ctx: BriefingContext): Segment[] {
   return [{ text: CINEMATIC_SCRIPT, openPanel: 'social' }];
 }
 
-/** Kept for fallback engines that can't handle a single long line. */
 export const BRIEFING_LINES = [CINEMATIC_SCRIPT];
 
 export const stripTags = (s: string) => s.replace(/\[[^\]]+\]/g, '').replace(/\s+/g, ' ').trim();

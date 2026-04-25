@@ -17,8 +17,10 @@ Any MP3/WAV/OGG will work. File path is configurable via `VITE_MUSIC_TRACK` in `
 
 ```
 VITE_MUSIC_TRACK=/audio/my-custom-track.mp3
-# or absolute:
-VITE_MUSIC_TRACK=file:///C:/Users/hergi/Music/workshop.mp3
+# or absolute (replace with your own path):
+# Windows:  VITE_MUSIC_TRACK=file:///C:/Users/you/Music/workshop.mp3
+# macOS:    VITE_MUSIC_TRACK=file:///Users/you/Music/workshop.mp3
+# Linux:    VITE_MUSIC_TRACK=file:///home/you/Music/workshop.mp3
 ```
 
 If no file is found, the app falls back to the built-in procedural score.

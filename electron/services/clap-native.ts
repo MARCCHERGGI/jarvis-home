@@ -1,8 +1,10 @@
 import { BrowserWindow } from 'electron';
 import { spawn, ChildProcess } from 'node:child_process';
 
-const FFMPEG = 'C:\\Users\\hergi\\AppData\\Local\\Microsoft\\WinGet\\Packages\\Gyan.FFmpeg_Microsoft.Winget.Source_8wekyb3d8bbwe\\ffmpeg-8.0.1-full_build\\bin\\ffmpeg.exe';
-const MIC_DEVICE = 'Microphone Array (Realtek(R) Audio)';
+// ffmpeg path: env override → assume on PATH. Catch handles missing binary.
+const FFMPEG = process.env.JARVIS_FFMPEG || 'ffmpeg';
+// Mic device: env override → blank string lets ffmpeg pick the default input.
+const MIC_DEVICE = process.env.JARVIS_MIC_DEVICE || 'Microphone Array (Realtek(R) Audio)';
 
 let proc: ChildProcess | null = null;
 

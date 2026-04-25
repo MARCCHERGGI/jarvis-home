@@ -1,113 +1,157 @@
-# JARVIS_HOME
+# JARVIS
 
-Cinematic Windows desktop shell. Sleeps on a 3D Earth in space, wakes on a clap, zooms to Manhattan, briefs you, launches your stack, and asks what we're building today.
+> **An open-source cinematic AI desktop UI framework.**
+> The voice. The Earth zoom. The HUD reveal. Bring your own brain.
 
-## Quick start
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Status](https://img.shields.io/badge/status-v0.1%20building-orange.svg)](#)
+[![Early access](https://img.shields.io/badge/early%20access-jarvis--landing--theta.vercel.app-1d8fff.svg)](https://jarvis-landing-theta.vercel.app)
+
+---
+
+## What this is
+
+JARVIS is a desktop interface kit. The clap-to-wake, the Earth-to-city zoom, the briefing voice, the HUD — all of it open source under MIT.
+
+You compose four plugins:
+
+```
+   scene      voice       brain       briefing-script
+   (3D)       (TTS)       (LLM)       (markdown lines)
+     \         |           |               /
+      \________|___________|_____________/
+                       │
+                  briefing engine
+                       │
+                  your assistant
+```
+
+Replace any plugin, the rest keeps working. Want a JARVIS that lives on Mars instead of Earth? Swap the scene. Want it to speak in your voice? Swap the voice adapter. Want it powered by Llama on your laptop instead of GPT? Swap the brain. Want it called FRIDAY? Rewrite `briefing-scripts/morning.md`.
+
+The waitlist for the polished hosted version (memory, voice cloning, smart routing) is at **[jarvis-landing-theta.vercel.app](https://jarvis-landing-theta.vercel.app)**. The framework you're looking at right now is forever free.
+
+## See it run
 
 ```bash
-cd C:/Users/hergi/JARVIS_HOME
-cp .env.example .env     # ElevenLabs key already pre-filled
+git clone https://github.com/MARCCHERGGI/jarvis-home.git
+cd jarvis-home
 npm install
-npm run dev:electron     # dev mode, fullscreen, hot reload
+
+# 30-second framework smoke test, no GPU, no keys
+npx tsx examples/minimal/main.ts
+
+# the full reference build (Electron + Three.js + voice)
+cp .env.example .env       # paste any one of: ElevenLabs / OpenAI / Groq
+npm run dev:electron
 ```
 
-**Test mode:** spacebar simulates a clap. `Esc` quits.
+**Triggers in the full build:**
+- **Clap** — your mic, real time. Adjust `VITE_CLAP_THRESHOLD` if it's too sensitive.
+- **Spacebar** — always works. Use this for rehearsals.
+- **Esc** — quit.
 
-## Architecture
-
-```
-electron/                        Electron main process (fullscreen shell + launcher)
-  main.ts                        BrowserWindow, IPC
-  preload.ts                     contextBridge → window.jarvis
-  services/launcher.ts           child_process.spawn for OpenClaw, Hermes, Claude Code
-src/
-  main.tsx / App.tsx             Renderer entry
-  scenes/SleepScene.tsx          Three.js Earth + stars + atmosphere + phase-driven camera
-  components/
-    HUD/HUDFrame.tsx             Corner brackets, clock, status, voice VU bar
-    Panels/                      News · Markets · Launch status
-    Boot/BootSequence.tsx        Panel choreography
-  services/
-    tts/                         Voice pipeline (see below)
-    briefing/mock-data.ts        News + markets + voice lines
-    clap/mic-detector.ts         Mic RMS → clap trigger
-    launcher/ (via preload)      IPC to Electron main
-  hooks/
-    useWakeSequence.ts           The cinematic timeline
-    useClap.ts                   Mic + spacebar trigger
-  state/store.ts                 Zustand: phase, voice, launches
-  config/index.ts                Apps + URLs + thresholds
-```
-
-### Phase state machine
+## Repo tour
 
 ```
-sleep  →  waking  →  descending  →  briefing  →  ready
-          space↗    earth↗NYC      panels in   final line
+briefing-scripts/      🔥 the soul — markdown voice scripts (forkable)
+docs/                  the four plugin contracts, fully explained
+examples/minimal/      tiny "hello JARVIS" — no Electron, runs in 1s
+
+src/core/              the framework itself (4 files, ~200 LOC)
+  types.ts             plugin interfaces — Brain · Voice · Scene · Script
+  parse-briefing.ts    markdown → BriefingScript
+  briefing-engine.ts   the runner — phase, speak, pause, next
+  index.ts             public API
+
+src/voices/            voice adapters (the reference: ElevenLabs / OpenAI / Web Speech)
+src/brains/            brain adapters (the reference: Ollama / Groq / Anthropic / OpenAI)
+src/scenes/            scene plugins (the reference: Earth)
+
+electron/              the desktop shell — windowing, IPC, native services
+src/components/        the HUD, panels, boot sequence — visual layer
+src/hooks/             wake sequence, clap, voice commands
+public/                Earth textures, audio assets
+
+build/                 electron-builder resources (Mac entitlements, etc.)
+.github/workflows/     tag-triggered Mac + Windows release builds
 ```
 
-## Voice (the centerpiece)
+## The four plugin contracts
 
-Premium path: **ElevenLabs Turbo v2.5**, streaming, ~250 ms latency.
-Default voice: **Alice** — British, crisp, driven. The "sharp exec" JARVIS-female.
-
-Three curated voices ship in `src/services/tts/voices.ts`:
-
-| Voice     | Accent    | Character                                              |
-|-----------|-----------|--------------------------------------------------------|
-| **Alice** (default) | British  | Clear, fast, driven. Sharp exec.                |
-| Charlotte | British   | Smoother, sophisticated, more cinematic.               |
-| Matilda   | American  | Warmer, friendlier JARVIS.                             |
-
-Each ships with a tuned profile (`stability`, `similarity_boost`, `style`, `speed`) to hit the "smooth, fast, charismatic" target.
-
-Fallback chain: **ElevenLabs → Web Speech (Sonia/Libby/Aria)**. If the key 401s on quota, the pipeline silently downgrades so the experience still runs.
-
-Swap voice:
-```ts
-await voice.speak('text here', { voice: 'charlotte' });
-```
-
-## Wake trigger
-
-- **Mic clap** — `startClapDetector` watches time-domain RMS for spikes above `VITE_CLAP_THRESHOLD`. Refractory window 1.2 s.
-- **Spacebar** — always active. Use for rehearsals.
-
-## Launchers
-
-`electron/services/launcher.ts` spawns apps via shell. Configure apps in `src/config/index.ts`:
+Read `docs/architecture.md` for the full picture. The 30-second version:
 
 ```ts
-launchApps: ['openclaw', 'hermes', 'claude-code'],
-launchUrls: ['https://chat.openai.com', 'https://claude.ai'],
+interface ScenePlugin    { mount(el): { setPhase, setTarget, destroy } }
+interface VoiceAdapter   { speak(text, opts): Promise<void>; stop() }
+interface BrainAdapter   { ask(req): Promise<string>; stream?(req) }
+interface BriefingScript { id, beats: { id, text, pauseAfterMs?, phase? }[] }
 ```
 
-## Design language
+Implement one, drop it in, you've extended JARVIS.
 
-- Pure black background, white text, subtle cyan (`#6cf4ff`) accents.
-- Frosted-glass panels, hairline borders, monospace labels.
-- No skeuomorphism, no gamer neon, no clutter.
-
-## Build for Windows
+## Build for distribution
 
 ```bash
-npm run build
-# output: dist/ + packaged .exe in release/
+npm run build:win        # Windows .exe (NSIS + portable)
+npm run build:mac        # macOS universal .dmg
+npm run build:linux      # Linux .AppImage
 ```
 
-## Phases shipped
+Outputs land in `release/`. The GitHub Actions workflow at `.github/workflows/release.yml` auto-builds on tag push (`git tag v0.1.0 && git push --tags`).
 
-- [x] **Phase 1 — Runnable mock.** Electron scaffold, Three.js Earth + stars + atmosphere, HUD frame, sleep hint, spacebar trigger, phase state machine, wake → descend → panels → ready sequence, mock news/markets, launcher IPC stubs.
-- [x] **Phase 2 — Premium voice.** ElevenLabs Turbo v2.5 streaming, 3 curated JARVIS-female voices with tuned profiles, Web Speech fallback, amplitude analyser driving HUD VU bar.
-- [x] **Phase 3 — Launch orchestration.** Real `child_process` launches for OpenClaw / Hermes / Claude Code with status updates in LaunchPanel.
+## Privacy
 
-## What remains
+- JARVIS does not phone home. No analytics. No telemetry.
+- Your prompts only leave your machine if you put a key in for ElevenLabs / OpenAI / Groq — those services then see the audio you submit.
+- The optional auto-updater checks GitHub Releases for new versions. Disable by removing the `publish` block from `package.json`'s `build` config.
 
-- Real Earth textures + night-lights overlay (drop into `/public/textures/earth.*`).
-- City-level zoom texture (Manhattan satellite overlay) for the final camera stop.
-- Live news feed (swap `mock-data.ts` for an RSS/News API fetch).
-- Live market feed (Binance WS for crypto, Polygon/Finnhub for equities).
-- Weather + calendar panel.
-- Custom voice clone (your own voice or a licensed celebrity read-alike).
-- Electron-builder signing / auto-update.
-- Multi-display awareness.
+## Make it yours
+
+The fastest way to own this:
+
+1. Fork the repo
+2. Edit `briefing-scripts/morning.md` — rewrite every line in your assistant's voice
+3. (Optional) Replace `src/scenes/SleepScene.tsx` with your own visual
+4. (Optional) Set your default voice ID in `.env`
+5. `npm run build:mac` → ship a `.dmg` named after **your** assistant
+
+That's it. No framework dependencies to learn. No build chain to fight.
+
+## Roadmap
+
+**v0.1 — First Light** (shipping now)
+- ✅ Cinematic wake sequence (clap → earth → city → briefing)
+- ✅ Voice output via ElevenLabs / OpenAI TTS / Web Speech
+- ✅ Local LLM via Ollama, cloud LLM via Groq / Anthropic / OpenAI
+- ✅ Plugin contracts: scene · voice · brain · briefing-script
+- ⏳ First-run setup wizard
+- ⏳ Auto-update from GitHub Releases
+
+**v0.2 — Hosted brain** (~6 weeks)
+- Persistent memory + personality across sessions
+- Calendar / email / notifications integration
+- Voice command → action layer
+- Mobile companion (iOS/Android)
+- *(this layer is paid, $19/mo or $49 lifetime — founders get half off forever)*
+
+**v0.3 — Custom voice**
+- Voice cloning (your own voice, or licensed read-alikes)
+- Pluggable persona profiles
+
+## Contributing
+
+See [CONTRIBUTING.md](CONTRIBUTING.md). Small, focused PRs land fast. The bar is "would Marco run this on his own machine."
+
+Particularly welcome: new scene plugins, new voice adapters, new briefing scripts (in any language or persona).
+
+## Security
+
+See [SECURITY.md](SECURITY.md). Report vulnerabilities privately.
+
+## License
+
+MIT — see [LICENSE](LICENSE).
+
+---
+
+*Made in NYC by [@marcohergi](https://www.instagram.com/marcohergi). Drop your email at [jarvis-landing-theta.vercel.app](https://jarvis-landing-theta.vercel.app) for founding access when v0.2 ships.*

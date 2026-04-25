@@ -1,15 +1,28 @@
 {
   "name": "jarvis-home",
   "version": "0.1.0",
-  "private": true,
-  "description": "Cinematic Windows desktop shell — JARVIS wake screen",
+  "private": false,
+  "license": "MIT",
+  "description": "JARVIS — voice-first, local-first desktop companion. Open source.",
+  "homepage": "https://jarvis-landing-theta.vercel.app",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/MARCCHERGGI/jarvis-home.git"
+  },
+  "bugs": {
+    "url": "https://github.com/MARCCHERGGI/jarvis-home/issues"
+  },
+  "author": "Marco Hergi",
   "main": "dist-electron/main.js",
   "scripts": {
     "dev": "vite",
     "dev:electron": "concurrently -k \"vite\" \"wait-on http://localhost:5173 && tsc -p electron/tsconfig.json && cross-env ELECTRON_RENDERER_URL=http://localhost:5173 electron dist-electron/main.js\"",
-    "build": "tsc -p electron/tsconfig.json && vite build && electron-builder",
+    "build": "npm run build:electron && npm run build:renderer && electron-builder",
     "build:renderer": "vite build",
     "build:electron": "tsc -p electron/tsconfig.json",
+    "build:win": "npm run build:electron && npm run build:renderer && electron-builder --win",
+    "build:mac": "npm run build:electron && npm run build:renderer && electron-builder --mac",
+    "build:linux": "npm run build:electron && npm run build:renderer && electron-builder --linux",
     "start": "electron dist-electron/main.js",
     "typecheck": "tsc --noEmit"
   },
@@ -38,13 +51,86 @@
   },
   "build": {
     "appId": "com.marco.jarvishome",
-    "productName": "JARVIS_HOME",
+    "productName": "JARVIS",
+    "asar": true,
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
     "files": [
       "dist/**/*",
-      "dist-electron/**/*"
+      "dist-electron/**/*",
+      "package.json",
+      "LICENSE"
+    ],
+    "extraMetadata": {
+      "main": "dist-electron/main.js"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "MARCCHERGGI",
+        "repo": "jarvis-home"
+      }
     ],
     "win": {
-      "target": "nsis"
+      "target": [
+        {
+          "target": "nsis",
+          "arch": ["x64"]
+        },
+        {
+          "target": "portable",
+          "arch": ["x64"]
+        }
+      ],
+      "artifactName": "JARVIS-${version}-${arch}.${ext}",
+      "verifyUpdateCodeSignature": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "shortcutName": "JARVIS"
+    },
+    "mac": {
+      "target": [
+        {
+          "target": "dmg",
+          "arch": ["universal"]
+        },
+        {
+          "target": "zip",
+          "arch": ["universal"]
+        }
+      ],
+      "artifactName": "JARVIS-${version}-${arch}.${ext}",
+      "category": "public.app-category.productivity",
+      "hardenedRuntime": true,
+      "gatekeeperAssess": false,
+      "entitlements": "build/entitlements.mac.plist",
+      "entitlementsInherit": "build/entitlements.mac.plist",
+      "notarize": false
+    },
+    "dmg": {
+      "title": "JARVIS ${version}",
+      "icon": "build/icon.icns",
+      "contents": [
+        { "x": 130, "y": 220, "type": "file" },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "linux": {
+      "target": [
+        {
+          "target": "AppImage",
+          "arch": ["x64"]
+        }
+      ],
+      "category": "Utility",
+      "artifactName": "JARVIS-${version}-${arch}.${ext}"
     }
   }
 }
