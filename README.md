@@ -13,20 +13,20 @@
 
 JARVIS is a desktop interface kit. The clap-to-wake, the Earth-to-city zoom, the briefing voice, the HUD — all of it open source under MIT.
 
-You compose four plugins:
+You compose five plugins:
 
 ```
-   scene      voice       brain       briefing-script
-   (3D)       (TTS)       (LLM)       (markdown lines)
-     \         |           |               /
-      \________|___________|_____________/
-                       │
-                  briefing engine
-                       │
-                  your assistant
+   scene      voice       brain       script       feeds
+   (3D)       (TTS)       (LLM)       (markdown)   (data)
+     \         |           |             |          /
+      \________|___________|_____________|________/
+                            │
+                     briefing engine + HUD
+                            │
+                       your assistant
 ```
 
-Replace any plugin, the rest keeps working. Want a JARVIS that lives on Mars instead of Earth? Swap the scene. Want it to speak in your voice? Swap the voice adapter. Want it powered by Llama on your laptop instead of GPT? Swap the brain. Want it called FRIDAY? Rewrite `briefing-scripts/morning.md`.
+Replace any plugin, the rest keeps working. Want a JARVIS that lives on Mars instead of Earth? Swap the scene. Want it to speak in your voice? Swap the voice adapter. Want it powered by Llama on your laptop instead of GPT? Swap the brain. Want it called FRIDAY? Rewrite `briefing-scripts/morning.md`. Want it watching crypto, news, and the HN firehose? Drop in a feed adapter — the scaffold panels render the rest.
 
 The waitlist for the polished hosted version (memory, voice cloning, smart routing) is at **[jarvis-landing-theta.vercel.app](https://jarvis-landing-theta.vercel.app)**. The framework you're looking at right now is forever free.
 
@@ -39,6 +39,9 @@ npm install
 
 # 30-second framework smoke test, no GPU, no keys
 npx tsx examples/minimal/main.ts
+
+# 60-second feeds smoke test — trading / news / social adapters
+npx tsx examples/feeds/main.ts
 
 # the full reference build (Electron + Three.js + voice)
 cp .env.example .env       # paste any one of: ElevenLabs / OpenAI / Groq
@@ -54,8 +57,9 @@ npm run dev:electron
 
 ```
 briefing-scripts/      🔥 the soul — markdown voice scripts (forkable)
-docs/                  the four plugin contracts, fully explained
+docs/                  the five plugin contracts, fully explained
 examples/minimal/      tiny "hello JARVIS" — no Electron, runs in 1s
+examples/feeds/        proof-of-life for the FeedAdapter contract
 
 src/core/              the framework itself (4 files, ~200 LOC)
   types.ts             plugin interfaces — Brain · Voice · Scene · Script
@@ -66,9 +70,11 @@ src/core/              the framework itself (4 files, ~200 LOC)
 src/voices/            voice adapters (the reference: ElevenLabs / OpenAI / Web Speech)
 src/brains/            brain adapters (the reference: Ollama / Groq / Anthropic / OpenAI)
 src/scenes/            scene plugins (the reference: Earth)
+src/feeds/             feed adapters — trading / news / social (mock + your own)
 
 electron/              the desktop shell — windowing, IPC, native services
 src/components/        the HUD, panels, boot sequence — visual layer
+  Panels/scaffold/     drop-in panels: trading, news, social — fed by FeedAdapter
 src/hooks/             wake sequence, clap, voice commands
 public/                Earth textures, audio assets
 
@@ -76,7 +82,7 @@ build/                 electron-builder resources (Mac entitlements, etc.)
 .github/workflows/     tag-triggered Mac + Windows release builds
 ```
 
-## The four plugin contracts
+## The five plugin contracts
 
 Read `docs/architecture.md` for the full picture. The 30-second version:
 
@@ -85,9 +91,14 @@ interface ScenePlugin    { mount(el): { setPhase, setTarget, destroy } }
 interface VoiceAdapter   { speak(text, opts): Promise<void>; stop() }
 interface BrainAdapter   { ask(req): Promise<string>; stream?(req) }
 interface BriefingScript { id, beats: { id, text, pauseAfterMs?, phase? }[] }
+interface FeedAdapter<T> { fetch(opts?): Promise<T[]>; subscribe?(handler) }
 ```
 
-Implement one, drop it in, you've extended JARVIS.
+Implement one, drop it in, you've extended JARVIS. The `FeedAdapter` is the
+hook for trading systems, news monitors, social-firehose readers — anything
+streaming. See `docs/feeds.md` for the contract + 20-line CoinGecko / NewsAPI /
+HN reference wirings, and `src/components/Panels/scaffold/` for the drop-in
+panels that render any adapter.
 
 ## Build for distribution
 
