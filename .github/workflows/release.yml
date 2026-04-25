@@ -31,23 +31,21 @@ jobs:
       # fine at runtime. The Vite/electron-builder bundler steps below are the
       # authoritative compile.
 
+      # electron-builder ships with --publish never so it ONLY produces local
+      # artifacts. The dedicated `publish` job below handles GitHub Releases via
+      # softprops/action-gh-release — single source of truth, no race.
       - name: Build (Windows)
         if: matrix.os == 'windows-latest'
-        run: npm run build
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build -- --publish never
 
       - name: Build (macOS, unsigned)
         if: matrix.os == 'macos-latest' && env.APPLE_ID == ''
-        run: npm run build
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: npm run build -- --publish never
 
       - name: Build (macOS, signed + notarized)
         if: matrix.os == 'macos-latest' && env.APPLE_ID != ''
-        run: npm run build
+        run: npm run build -- --publish never
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
